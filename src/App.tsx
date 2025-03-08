@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Box, ChakraProvider, Container, VStack, Heading, 
   Input, Textarea, Button, HStack, Image, 
@@ -8,13 +8,20 @@ import {
   SimpleGrid, Badge, Modal, ModalOverlay,
   ModalContent, ModalHeader, ModalBody,
   ModalFooter, ModalCloseButton, useDisclosure,
-  Spinner, Menu, MenuButton, MenuList, MenuItem,
-  IconButton, Tag, TagLabel, TagCloseButton, Wrap, WrapItem,
-  extendTheme, Center, Spacer, css
+  Menu, MenuButton, MenuList, MenuItem,
+  Tag, TagLabel, TagCloseButton, Wrap, WrapItem,
+  extendTheme, Center
 } from '@chakra-ui/react';
 import { format, parseISO, differenceInDays } from 'date-fns';
-import { ChevronDownIcon, CalendarIcon, TimeIcon, SettingsIcon, StarIcon, AddIcon, EditIcon } from '@chakra-ui/icons';
+import { ChevronDownIcon, CalendarIcon, SettingsIcon, StarIcon, AddIcon, EditIcon } from '@chakra-ui/icons';
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+//import { initializeApp } from "firebase/app";
+//import { getFirestore } from "firebase/firestore";
+//import { getAnalytics } from "firebase/analytics";
+//import { getAuth } from "firebase/auth";
 
+// 在import下方添加Firebase配置
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 
 // 定义主题
 const theme = extendTheme({
@@ -118,7 +125,8 @@ function App() {
   const [selectedDate, setSelectedDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
   const [selectedMood, setSelectedMood] = useState<string>('😊');
   const [content, setContent] = useState<string>('');
-  const [image, setImage] = useState<File | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [_image, setImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
   const [registerForm, setRegisterForm] = useState({ username: '', email: '', password: '', confirmPassword: '' });

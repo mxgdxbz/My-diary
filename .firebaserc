@@ -1,0 +1,11 @@
+{
+  "projects": {
+    "default": "diary-darling"
+  },
+  "targets": {},
+  "etags": {
+    "diary-darling": {
+      "extensionInstances": {}
+    }
+  }
+}
