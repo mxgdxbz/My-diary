@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  Box, ChakraProvider, Container, VStack, Heading, 
+  Box, ChakraProvider, VStack, Heading, 
   Input, Textarea, Button, HStack, Image, 
   useToast, FormControl, FormLabel, Flex,
   Tabs, TabList, TabPanels, Tab, TabPanel,
@@ -10,7 +10,8 @@ import {
   ModalFooter, ModalCloseButton, useDisclosure,
   Menu, MenuButton, MenuList, MenuItem,
   Tag, TagLabel, TagCloseButton, Wrap, WrapItem,
-  extendTheme, Center, Switch, Grid, GridItem
+  extendTheme, Center, Switch, Grid, GridItem,
+  Icon, useColorMode, IconButton, Tooltip
 } from '@chakra-ui/react';
 import { format, parseISO, differenceInDays, startOfMonth, endOfMonth, addDays, isSameDay, isSameMonth } from 'date-fns';
 import { ChevronDownIcon, CalendarIcon, SettingsIcon, StarIcon, AddIcon, EditIcon } from '@chakra-ui/icons';
@@ -18,8 +19,147 @@ import { db, auth } from './FirebaseConfig';
 import { collection, addDoc, getDocs, query, where, updateDoc, doc, setDoc, getDoc } from 'firebase/firestore';
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile } from 'firebase/auth';
 
+// 引入动态壁纸相关组件
+import WallpaperBackground from './components/WallpaperBackground';
 
-// 定义主题
+// 语言配置
+type Language = 'zh' | 'en';
+
+// 翻译文本映射
+const translations = {
+  zh: {
+    myDiary: '我的日记',
+    welcome: '欢迎回来',
+    consecutiveDays: '连续记录',
+    days: '天',
+    writeDiary: '写日记',
+    viewDiary: '查看日记',
+    moodCalendar: '心情日历',
+    date: '日期',
+    mood: '今日心情',
+    content: '今日记录',
+    addTag: '添加标签',
+    inputTag: '输入标签...',
+    add: '添加',
+    addImage: '添加图片',
+    save: '保存日记',
+    noDiaries: '暂无日记记录',
+    allDiaries: '全部日记',
+    tag: '标签',
+    close: '关闭',
+    edit: '编辑',
+    like: '点赞',
+    liked: '已赞',
+    diaryReminder: '日记提醒',
+    enableReminder: '启用每日提醒',
+    reminderTime: '提醒时间',
+    accountInfo: '账号信息',
+    username: '用户名',
+    email: '用户邮箱',
+    userId: '用户ID',
+    cancel: '取消',
+    saveSettings: '保存设置',
+    logout: '退出',
+    settings: '设置',
+    chatAbout: '聊一下',
+    editingDiary: '您正在编辑',
+    cancelEdit: '取消编辑',
+    diaryDate: '的日记',
+    tagTip: '(可使用 #标签 添加标签)',
+    contentPlaceholder: '写下今天的心情和故事... 可以使用 #工作 #生活 等标签',
+    previousMonth: '上个月',
+    nextMonth: '下个月',
+    today: '今天',
+    calendarTip: '带有表情符号的日期表示该日有日记记录，点击可查看详情',
+    clickChat: '点击"聊一下"按钮，启动AI聊天。',
+    recordLife: '记录生活点滴',
+    login: '登录',
+    register: '注册',
+    emailPlaceholder: '请输入注册邮箱',
+    passwordPlaceholder: '请输入密码',
+    usernamePlaceholder: '请创建用户名',
+    confirmPassword: '确认密码',
+    confirmPasswordPlaceholder: '请再次输入密码',
+    emailInput: '电子邮箱',
+    emailInputPlaceholder: '请输入邮箱',
+    passwordInputPlaceholder: '请创建密码',
+    password: '密码',
+    sun: '日',
+    mon: '一',
+    tue: '二',
+    wed: '三',
+    thu: '四',
+    fri: '五',
+    sat: '六'
+  },
+  en: {
+    myDiary: 'My Diary',
+    welcome: 'Welcome back',
+    consecutiveDays: 'Consecutive',
+    days: 'Days',
+    writeDiary: 'Write Diary',
+    viewDiary: 'View Diary',
+    moodCalendar: 'Mood Calendar',
+    date: 'Date',
+    mood: 'Mood',
+    content: 'Content',
+    addTag: 'Add Tag',
+    inputTag: 'Input tag...',
+    add: 'Add',
+    addImage: 'Add Image',
+    save: 'Save',
+    noDiaries: 'No diary records',
+    allDiaries: 'All Diaries',
+    tag: 'Tag',
+    close: 'Close',
+    edit: 'Edit',
+    like: 'Like',
+    liked: 'Liked',
+    diaryReminder: 'Diary Reminder',
+    enableReminder: 'Enable Daily Reminder',
+    reminderTime: 'Reminder Time',
+    accountInfo: 'Account Info',
+    username: 'Username',
+    email: 'Email',
+    userId: 'User ID',
+    cancel: 'Cancel',
+    saveSettings: 'Save Settings',
+    logout: 'Logout',
+    settings: 'Settings',
+    chatAbout: 'AI Chat',
+    editingDiary: 'You are editing',
+    cancelEdit: 'Cancel Edit',
+    diaryDate: 'diary',
+    tagTip: '(use #tag to add tags)',
+    contentPlaceholder: 'Write about your day... You can use tags like #work #life',
+    previousMonth: 'Previous',
+    nextMonth: 'Next',
+    today: 'Today',
+    calendarTip: 'Dates with emoji have diary entries, click to view details',
+    clickChat: 'Click "AI Chat" button to start AI conversation.',
+    recordLife: 'Record your life moments',
+    login: 'Login',
+    register: 'Register',
+    emailPlaceholder: 'Enter your email',
+    passwordPlaceholder: 'Enter your password',
+    usernamePlaceholder: 'Create a username',
+    confirmPassword: 'Confirm Password',
+    confirmPasswordPlaceholder: 'Enter password again',
+    emailInput: 'Email',
+    emailInputPlaceholder: 'Enter your email',
+    passwordInputPlaceholder: 'Create a password',
+    password: 'Password',
+    sun: 'Sun',
+    mon: 'Mon',
+    tue: 'Tue',
+    wed: 'Wed',
+    thu: 'Thu',
+    fri: 'Fri',
+    sat: 'Sat'
+  }
+};
+
+// 定义玻璃拟态主题
 const theme = extendTheme({
   colors: {
     brand: {
@@ -34,43 +174,219 @@ const theme = extendTheme({
       800: "#B64939",
       900: "#A43D38",
     },
+    neutrals: {
+      50: "#F9F7F4",  // 米白色
+      100: "#F0EAE4",  // 浅奶咖色
+      200: "#E6DED5",  // 奶咖色
+      800: "#423C36",  // 深灰色
+      900: "#2D2A25",  // 接近黑色
+    }
   },
   styles: {
     global: {
       body: {
-        bg: '#F9F2E8', // 米色背景
-        color: '#4A321F', // 深褐色文字
+        bg: 'neutrals.50', 
+        color: 'neutrals.900',
+        backgroundImage: 'url(/bg-pattern.png)', // 可选：添加微妙的背景图案
+        backgroundSize: 'cover',
+        backgroundAttachment: 'fixed',
       },
     },
   },
   components: {
     Button: {
-      baseStyle: {},
+      baseStyle: {
+        fontWeight: 'medium',
+        borderRadius: 'md',
+      },
       variants: {
         solid: (props: any) => ({
-          bg: props.colorScheme === "teal" ? "brand.500" : undefined,
-          color: props.colorScheme === "teal" ? "white" : undefined,
+          bg: props.colorScheme === "teal" ? "brand.500" : 
+               props.colorScheme === "gray" ? "neutrals.800" : undefined,
+          color: "white",
           _hover: {
-            bg: props.colorScheme === "teal" ? "brand.600" : undefined,
+            bg: props.colorScheme === "teal" ? "brand.600" : 
+                 props.colorScheme === "gray" ? "neutrals.900" : undefined,
+            transform: 'translateY(-2px)',
+            boxShadow: 'md',
           },
+          transition: 'all 0.2s',
         }),
+        glass: {
+          bg: 'rgba(255, 255, 255, 0.15)',
+          borderRadius: 'lg',
+          color: 'neutrals.900',
+          border: '1px solid rgba(255, 255, 255, 0.2)',
+          _hover: {
+            bg: 'rgba(255, 255, 255, 0.25)',
+            transform: 'translateY(-2px)',
+            boxShadow: 'md',
+          },
+          transition: 'all 0.2s',
+        },
       },
     },
     Card: {
       baseStyle: {
         container: {
-          bg: 'white',
-          boxShadow: 'sm',
+          bg: 'rgba(255, 255, 255, 0.6)',
+          borderRadius: 'xl',
+          boxShadow: '0 8px 32px rgba(31, 38, 135, 0.1)',
+          border: '1px solid rgba(255, 255, 255, 0.18)',
+          transition: 'all 0.3s ease',
         },
       },
+      variants: {
+        glass: {
+          container: {
+            bg: 'rgba(255, 255, 255, 0.6)',
+            borderRadius: 'xl',
+            boxShadow: '0 8px 32px rgba(31, 38, 135, 0.1)',
+            border: '1px solid rgba(255, 255, 255, 0.18)',
+            transition: 'all 0.3s ease',
+            _hover: {
+              boxShadow: '0 8px 32px rgba(31, 38, 135, 0.2)',
+            },
+          }
+        }
+      },
+      defaultProps: {
+        variant: 'glass',
+      }
     },
+    Input: {
+      variants: {
+        glass: {
+          field: {
+            bg: 'rgba(255, 255, 255, 0.3)',
+            borderRadius: 'md',
+            border: '1px solid rgba(255, 255, 255, 0.2)',
+            _hover: {
+              borderColor: 'brand.500',
+            },
+            _focus: {
+              borderColor: 'brand.500',
+              boxShadow: '0 0 0 1px #EA6C3C',
+            },
+          }
+        }
+      },
+      defaultProps: {
+        variant: 'glass',
+      }
+    },
+    Textarea: {
+      variants: {
+        glass: {
+          bg: 'rgba(255, 255, 255, 0.3)',
+          borderRadius: 'md',
+          border: '1px solid rgba(255, 255, 255, 0.2)',
+          _hover: {
+            borderColor: 'brand.500',
+          },
+          _focus: {
+            borderColor: 'brand.500',
+            boxShadow: '0 0 0 1px #EA6C3C',
+          },
+        }
+      },
+      defaultProps: {
+        variant: 'glass',
+      }
+    },
+    Box: {
+      variants: {
+        glass: {
+          bg: 'rgba(255, 255, 255, 0.6)',
+          borderRadius: 'xl',
+          boxShadow: '0 8px 32px rgba(31, 38, 135, 0.1)',
+          border: '1px solid rgba(255, 255, 255, 0.18)',
+        }
+      }
+    },
+    Modal: {
+      baseStyle: {
+        dialog: {
+          bg: 'rgba(255, 255, 255, 0.85)',
+          borderRadius: 'xl',
+          boxShadow: 'xl',
+        }
+      }
+    },
+    Tabs: {
+      variants: {
+        'soft-rounded': {
+          tab: {
+            borderRadius: 'full',
+            fontWeight: 'medium',
+            _selected: {
+              color: 'white',
+              bg: 'brand.500',
+            }
+          }
+        },
+        enclosed: {
+          tab: {
+            _selected: {
+              color: 'brand.700',
+              borderColor: 'brand.500',
+              borderBottomColor: 'white',
+            }
+          }
+        },
+        glass: {
+          tab: {
+            borderRadius: 'md',
+            fontWeight: 'medium',
+            bg: 'rgba(255, 255, 255, 0.3)',
+            _selected: {
+              color: 'white',
+              bg: 'brand.500',
+            }
+          },
+          tablist: {
+            borderColor: 'rgba(255, 255, 255, 0.2)',
+            mb: '1em',
+          }
+        }
+      },
+    },
+    Text: {
+      baseStyle: {
+        fontFamily: `'SF Pro', -apple-system, BlinkMacSystemFont, sans-serif`,
+      },
+      variants: {
+        cursive: {
+          fontFamily: `'Ma Shan Zheng', '尔雅趣宋体', cursive`,
+        },
+        leira: {
+          fontFamily: `'Leira-Regular', 'Leira', cursive`,
+        }
+      }
+    },
+    Heading: {
+      baseStyle: {
+        fontFamily: `'SF Pro', -apple-system, BlinkMacSystemFont, sans-serif`,
+      },
+      variants: {
+        cursive: {
+          fontFamily: `'Ma Shan Zheng', '尔雅趣宋体', cursive`,
+        },
+        leira: {
+          fontFamily: `'Leira-Regular', 'Leira', cursive`,
+        }
+      }
+    }
   },
   fonts: {
-    heading: `'Ma Shan Zheng', '尔雅趣宋体', cursive`,
+    heading: `'SF Pro', -apple-system, BlinkMacSystemFont, sans-serif`,
+    body: `'SF Pro', -apple-system, BlinkMacSystemFont, sans-serif`,
+    cursive: `'Ma Shan Zheng', '尔雅趣宋体', cursive`,
+    leira: `'Leira-Regular', 'Leira', cursive`,
   },
 });
 
-// 模拟用户认证状态
+// 用户认证状态
 interface User {
   id: string;
   name: string;
@@ -135,8 +451,21 @@ const saveDiaryToFirestore = async (diary: DiaryEntry): Promise<void> => {
   }
 };
 
-
 function App() {
+  const { colorMode } = useColorMode();
+  // 添加语言选择状态
+  const [language, setLanguage] = useState<Language>('zh');
+  
+  // 翻译函数
+  const t = (key: keyof typeof translations.zh): string => {
+    return translations[language][key];
+  };
+  
+  // 切换语言函数
+  const toggleLanguage = () => {
+    setLanguage(prev => prev === 'zh' ? 'en' : 'zh');
+  };
+  
   // 状态管理
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
   const [user, setUser] = useState<User | null>(null);
@@ -517,6 +846,10 @@ function App() {
   // 打开日记详情
   const openDiaryDetail = (diary: DiaryEntry) => {
     setSelectedDiary(diary);
+    // 清除之前的AI分析，防止显示到其他日记
+    setAiAnalysis('');
+    setIsLiked(false);
+    setAnalysisId('');
     onDetailOpen();
   };
 
@@ -528,7 +861,7 @@ function App() {
     
     try {
       // 检查 API 端点 - 确保项目 ID 正确
-      const apiUrl = 'https://us-central1-diary-darling.cloudfunctions.net/analyzeDiary';
+      const apiUrl = 'https://us-central1-diary-darling.cloudfunctions.net/analyzeDiaryWithAI';
       console.log("开始调用 API: ", apiUrl);
       
       // 获取用户的历史日记
@@ -575,11 +908,11 @@ function App() {
       });
       
       // 检查响应状态
-      console.log("API响应状态:", response.status);
+      console.log("AI分析API响应状态:", response.status);
       
       if (!response.ok) {
         const errorText = await response.text();
-        console.error("API错误:", errorText);
+        console.error("AI分析API错误:", errorText);
         throw new Error(`API响应错误: ${response.status}: ${errorText}`);
       }
       
@@ -594,6 +927,15 @@ function App() {
       setAnalysisId(newAnalysisId);
       
       setIsAnalyzing(false);
+      
+      // 显示分析成功的提示
+      toast({
+        title: 'AI分析完成',
+        description: '基于人工智能的分析已准备就绪',
+        status: 'success',
+        duration: 3000,
+        isClosable: true,
+      });
     } catch (error) {
       console.error('AI分析请求失败:', error);
       setIsAnalyzing(false);
@@ -836,71 +1178,146 @@ function App() {
   // 渲染日历的函数
   const renderCalendar = () => {
     const days = getDaysInMonth(currentMonth);
-    const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
+    // 使用翻译后的星期标题
+    const weekdays = [t('sun'), t('mon'), t('tue'), t('wed'), t('thu'), t('fri'), t('sat')];
     const today = new Date();
     
     return (
-      <Box bg="white" p={4} borderRadius="md" boxShadow="md" mb={4}>
-        <Flex justify="space-between" align="center" mb={4}>
-          <Button size="sm" onClick={prevMonth} colorScheme="brand" variant="outline">上个月</Button>
-          <Heading size="md" color="brand.600">{format(currentMonth, 'yyyy年MM月')}</Heading>
-          <HStack>
-            <Button size="sm" onClick={nextMonth} colorScheme="brand" variant="outline">下个月</Button>
-            <Button size="sm" onClick={resetToCurrentMonth} colorScheme="brand">今天</Button>
+      <Box 
+        p={{ base: 2, sm: 4 }} 
+        borderRadius="xl" 
+        boxShadow="md" 
+        mb={4}
+        bg="rgba(255, 255, 255, 0.2)"
+        overflowX={{ base: "auto", md: "visible" }}
+      >
+        {/* 月份导航栏 - 在小屏幕上改为垂直布局 */}
+        <Flex 
+          direction={{ base: "column", sm: "row" }} 
+          justify="space-between" 
+          align={{ base: "center", sm: "center" }} 
+          mb={4}
+          gap={2}
+        >
+          <Button 
+            size="sm" 
+            onClick={prevMonth} 
+            colorScheme="brand" 
+            variant="outline" 
+            bg="rgba(255, 255, 255, 0.2)"
+            width={{ base: "full", sm: "auto" }}
+          >
+            {t('previousMonth')}
+          </Button>
+          
+          <Heading 
+            size="md" 
+            color="brand.600"
+            textAlign="center"
+          >
+            {format(currentMonth, 'yyyy年MM月')}
+          </Heading>
+          
+          <HStack spacing={2} width={{ base: "full", sm: "auto" }}>
+            <Button 
+              size="sm" 
+              onClick={nextMonth} 
+              colorScheme="brand" 
+              variant="outline" 
+              bg="rgba(255, 255, 255, 0.2)"
+              flex={{ base: 1, sm: "auto" }}
+            >
+              {t('nextMonth')}
+            </Button>
+            <Button 
+              size="sm" 
+              onClick={resetToCurrentMonth} 
+              colorScheme="brand" 
+              bg="rgba(234, 108, 60, 0.2)"
+              flex={{ base: 1, sm: "auto" }}
+            >
+              {t('today')}
+            </Button>
           </HStack>
         </Flex>
         
-        <Grid templateColumns="repeat(7, 1fr)" gap={1} mb={2}>
-          {weekdays.map((day, index) => (
-            <GridItem key={index} textAlign="center" fontWeight="bold" p={2} color="brand.600">
-              {day}
-            </GridItem>
-          ))}
-        </Grid>
-        
-        <Grid templateColumns="repeat(7, 1fr)" gap={1}>
-          {days.map((day, index) => {
-            const diary = getDiaryForDate(day);
-            const isCurrentMonth = isSameMonth(day, currentMonth);
-            const isToday = isSameDay(day, today);
-            
-            return (
+        {/* 星期标题行 - 调整文字大小和内边距 */}
+        <Box minW={{ base: "480px", md: "auto" }}>
+          <Grid templateColumns="repeat(7, 1fr)" gap={1} mb={2}>
+            {weekdays.map((day, index) => (
               <GridItem 
                 key={index} 
                 textAlign="center" 
-                p={2}
-                borderRadius="md"
-                bg={isToday ? "brand.100" : diary && isCurrentMonth ? "brand.50" : isCurrentMonth ? "white" : "gray.50"}
-                border={isToday ? "2px solid" : "none"}
-                borderColor="brand.500"
-                opacity={isCurrentMonth ? 1 : 0.5}
-                cursor={diary ? "pointer" : "default"}
-                onClick={() => diary && openDiaryDetail(diary)}
-                _hover={diary ? { bg: "brand.100" } : {}}
-                position="relative"
-                transition="all 0.2s"
+                fontWeight="bold" 
+                p={{ base: 1, sm: 2 }} 
+                color="brand.600"
               >
-                <VStack spacing={1}>
-                  <Text 
-                    fontSize="sm" 
-                    fontWeight={isToday ? "bold" : "normal"}
-                    color={isToday ? "brand.700" : isCurrentMonth ? "black" : "gray.500"}
-                  >
-                    {day.getDate()}
-                  </Text>
-                  {diary && (
-                    <Text fontSize="xl" title="点击查看日记">
-                      {diary.mood}
-                    </Text>
-                  )}
-                </VStack>
+                {day}
               </GridItem>
-            );
-          })}
-        </Grid>
+            ))}
+          </Grid>
+          
+          {/* 日期网格 - 调整内容显示和内边距 */}
+          <Grid templateColumns="repeat(7, 1fr)" gap={1}>
+            {days.map((day, index) => {
+              const diary = getDiaryForDate(day);
+              const isCurrentMonth = isSameMonth(day, currentMonth);
+              const isToday = isSameDay(day, today);
+              
+              return (
+                <GridItem 
+                  key={index} 
+                  textAlign="center" 
+                  p={{ base: 1, sm: 2 }}
+                  borderRadius="md"
+                  bg={isToday 
+                    ? "rgba(251, 211, 141, 0.4)" 
+                    : diary && isCurrentMonth 
+                      ? "rgba(255, 255, 255, 0.4)" 
+                      : isCurrentMonth 
+                        ? "rgba(255, 255, 255, 0.2)" 
+                        : "rgba(245, 245, 245, 0.1)"}
+                  cursor={diary ? "pointer" : "default"}
+                  onClick={() => diary && openDiaryDetail(diary)}
+                  _hover={diary ? { 
+                    bg: "rgba(251, 211, 141, 0.3)", 
+                    transform: "translateY(-2px)", 
+                    boxShadow: "sm" 
+                  } : {}}
+                  position="relative"
+                  transition="all 0.2s"
+                  boxShadow={diary ? "0 2px 10px rgba(234, 108, 60, 0.05)" : "none"}
+                  minH={{ base: "40px", sm: "50px" }}
+                  display="flex"
+                  alignItems="center"
+                  justifyContent="center"
+                >
+                  <VStack spacing={{ base: 0, sm: 1 }} w="100%">
+                    <Text 
+                      fontSize={{ base: "xs", sm: "sm" }}
+                      fontWeight={isToday ? "bold" : "normal"}
+                      color={isToday ? "brand.700" : isCurrentMonth ? "neutrals.900" : "neutrals.800"}
+                    >
+                      {day.getDate()}
+                    </Text>
+                    {diary && (
+                      <Text 
+                        fontSize={{ base: "md", sm: "xl" }} 
+                        title="点击查看日记"
+                        lineHeight="1"
+                      >
+                        {diary.mood}
+                      </Text>
+                    )}
+                  </VStack>
+                </GridItem>
+              );
+            })}
+          </Grid>
+        </Box>
         
-        <Text fontSize="xs" mt={2} textAlign="center" color="gray.500">
-          带有表情符号的日期表示该日有日记记录，点击可查看详情
+        <Text fontSize="xs" mt={2} textAlign="center" color="neutrals.800">
+          {t('calendarTip')}
         </Text>
       </Box>
     );
@@ -908,7 +1325,23 @@ function App() {
 
   // 渲染认证表单
   const renderAuthForm = () => (
-    <VStack spacing={6} align="stretch" boxShadow="md" p={6} borderRadius="md" bg="white">
+    <Box
+      width="100%"
+      height="100vh"
+      display="flex"
+      alignItems="center"
+      justifyContent="center"
+    >
+      <Box
+        width="90%"
+        maxWidth="450px"
+        p={8}
+        borderRadius="xl"
+        bg="rgba(255, 255, 255, 0.2)"
+        boxShadow="xl"
+        border="1px solid rgba(255, 255, 255, 0.3)"
+      >
+        <VStack spacing={6} align="stretch">
       <Center>
         <Heading 
           as="h1" 
@@ -917,42 +1350,65 @@ function App() {
           fontFamily="'Comic Sans MS', cursive" 
           color="brand.500"
         >
-          我的日记
+          {t('myDiary')}
         </Heading>
       </Center>
-      <Text textAlign="center" color="gray.600">记录生活点滴</Text>
+          <Text textAlign="center" color="neutrals.800">{t('recordLife')}</Text>
+          
+          {/* 添加语言切换按钮 */}
+          <Center>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={toggleLanguage}
+              color="brand.500"
+              _hover={{ color: "brand.600" }}
+              transition="all 0.3s ease"
+              fontWeight="medium"
+            >
+              {language === 'zh' ? 'Switch to English' : '切换到中文'}
+            </Button>
+          </Center>
       
       <Tabs variant="soft-rounded" colorScheme="brand" index={isRegistering ? 1 : 0}>
         <TabList mb="1em">
-          <Tab width="50%" onClick={() => setIsRegistering(false)}>登录</Tab>
-          <Tab width="50%" onClick={() => setIsRegistering(true)}>注册</Tab>
+          <Tab width="50%" onClick={() => setIsRegistering(false)}>{t('login')}</Tab>
+          <Tab width="50%" onClick={() => setIsRegistering(true)}>{t('register')}</Tab>
         </TabList>
         <TabPanels>
           {/* 登录表单 */}
           <TabPanel>
             <VStack spacing={4}>
               <FormControl>
-                <FormLabel>邮箱</FormLabel>
+                <FormLabel>{t('email')}</FormLabel>
                 <Input 
                   type="email"
-                  placeholder="请输入注册邮箱" 
+                  placeholder={t('emailPlaceholder')} 
                   value={loginForm.username}
                   onChange={(e) => setLoginForm({...loginForm, username: e.target.value})}
+                  bg="rgba(255, 255, 255, 0.3)"
+                  border="1px solid rgba(255, 255, 255, 0.2)"
+                  _hover={{ borderColor: "brand.500" }}
+                  _focus={{ borderColor: "brand.500", boxShadow: "0 0 0 1px #EA6C3C" }}
                 />
               </FormControl>
               
               <FormControl>
-                <FormLabel>密码</FormLabel>
+                <FormLabel>{t('password')}</FormLabel>
                 <Input 
                   type="password" 
-                  placeholder="请输入密码" 
+                  placeholder={t('passwordPlaceholder')} 
                   value={loginForm.password}
                   onChange={(e) => setLoginForm({...loginForm, password: e.target.value})}
+                  bg="rgba(255, 255, 255, 0.3)"
+                  border="1px solid rgba(255, 255, 255, 0.2)"
+                  _hover={{ borderColor: "brand.500" }}
+                  _focus={{ borderColor: "brand.500", boxShadow: "0 0 0 1px #EA6C3C" }}
                 />
               </FormControl>
               
               <Button colorScheme="teal" width="100%" onClick={handleLogin} mt={2}>
-                登录
+                {t('login')}
               </Button>
             </VStack>
           </TabPanel>
@@ -961,149 +1417,274 @@ function App() {
           <TabPanel>
             <VStack spacing={4}>
               <FormControl isRequired>
-                <FormLabel>用户名</FormLabel>
+                <FormLabel>{t('username')}</FormLabel>
                 <Input 
-                  placeholder="请创建用户名" 
+                  placeholder={t('usernamePlaceholder')} 
                   value={registerForm.username}
                   onChange={(e) => setRegisterForm({...registerForm, username: e.target.value})}
+                  bg="rgba(255, 255, 255, 0.3)"
+                  border="1px solid rgba(255, 255, 255, 0.2)"
+                  _hover={{ borderColor: "brand.500" }}
+                  _focus={{ borderColor: "brand.500", boxShadow: "0 0 0 1px #EA6C3C" }}
                 />
               </FormControl>
               
               <FormControl isRequired>
-                <FormLabel>电子邮箱</FormLabel>
+                <FormLabel>{t('email')}</FormLabel>
                 <Input 
                   type="email" 
-                  placeholder="请输入邮箱" 
+                  placeholder={t('emailInputPlaceholder')} 
                   value={registerForm.email}
                   onChange={(e) => setRegisterForm({...registerForm, email: e.target.value})}
+                  bg="rgba(255, 255, 255, 0.3)"
+                  border="1px solid rgba(255, 255, 255, 0.2)"
+                  _hover={{ borderColor: "brand.500" }}
+                  _focus={{ borderColor: "brand.500", boxShadow: "0 0 0 1px #EA6C3C" }}
                 />
               </FormControl>
               
               <FormControl isRequired>
-                <FormLabel>密码</FormLabel>
+                <FormLabel>{t('password')}</FormLabel>
                 <Input 
                   type="password" 
-                  placeholder="请创建密码" 
+                  placeholder={t('passwordInputPlaceholder')} 
                   value={registerForm.password}
                   onChange={(e) => setRegisterForm({...registerForm, password: e.target.value})}
+                  bg="rgba(255, 255, 255, 0.3)"
+                  border="1px solid rgba(255, 255, 255, 0.2)"
+                  _hover={{ borderColor: "brand.500" }}
+                  _focus={{ borderColor: "brand.500", boxShadow: "0 0 0 1px #EA6C3C" }}
                 />
               </FormControl>
               
               <FormControl isRequired>
-                <FormLabel>确认密码</FormLabel>
+                <FormLabel>{t('confirmPassword')}</FormLabel>
                 <Input 
                   type="password" 
-                  placeholder="请再次输入密码" 
+                  placeholder={t('confirmPasswordPlaceholder')} 
                   value={registerForm.confirmPassword}
                   onChange={(e) => setRegisterForm({...registerForm, confirmPassword: e.target.value})}
+                  bg="rgba(255, 255, 255, 0.3)"
+                  border="1px solid rgba(255, 255, 255, 0.2)"
+                  _hover={{ borderColor: "brand.500" }}
+                  _focus={{ borderColor: "brand.500", boxShadow: "0 0 0 1px #EA6C3C" }}
                 />
               </FormControl>
               
               <Button colorScheme="teal" width="100%" onClick={handleRegister} mt={2}>
-                注册
+                {t('register')}
               </Button>
             </VStack>
           </TabPanel>
         </TabPanels>
       </Tabs>
     </VStack>
+      </Box>
+    </Box>
   );
 
   // 渲染主应用
   const renderMainApp = () => (
-    <VStack spacing={6} align="stretch">
-      {/* 新导航栏布局 */}
-      <Box as="nav" bg="white" py={3} px={5} borderBottom="1px solid" borderColor="gray.200">
-        <Flex align="center" justify="space-between">
-          {/* 左侧链接和标题 */}
-          <HStack spacing={8}>
-            <Button 
-              variant="ghost" 
-              leftIcon={<CalendarIcon />} 
-              onClick={() => setActiveTab(0)}
-              color={activeTab === 0 ? "brand.500" : "gray.600"}
-              _hover={{ color: "brand.500" }}
-            >
-              写日记
-            </Button>
-            
-            {/* 向左移动的标题 */}
-            <Heading 
-              as="h1" 
-              size="lg" 
-              fontFamily="'Ma Shan Zheng', '尔雅趣宋体', cursive" 
-              color="brand.500"
-              ml={4}
-            >
-              我的日记
-            </Heading>
-          </HStack>
+    <Box minH="100vh" p={4}>
+      {/* 顶部导航栏 */}
+      <Flex
+        as="header"
+        align="center"
+        justify="space-between"
+        p={4}
+        mb={4}
+      >
+        <HStack spacing={4}>
+          <Icon as={CalendarIcon} color="brand.500" w={6} h={6} />
+          <Text 
+            fontSize={{ base: "xl", sm: "2xl" }}
+            fontFamily={language === 'zh' ? "cursive" : "leira"}
+            color="brand.500"
+            fontWeight="bold"
+          >
+            {t('myDiary')}
+          </Text>
+        </HStack>
           
-          {/* 右侧设置按钮和退出按钮 */}
-          <HStack spacing={4}>
-            <Button 
-              variant="ghost" 
-              leftIcon={<SettingsIcon />} 
-              onClick={onSettingsOpen}
-              color="gray.600"
+        {/* 右侧设置按钮和退出按钮 */}
+        <HStack spacing={4}>
+          {/* 添加语言切换按钮 */}
+          <Tooltip label={language === 'zh' ? 'Switch to English' : '切换到中文'}>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={toggleLanguage}
+              color="neutrals.800"
               _hover={{ color: "brand.500" }}
+              transition="all 0.3s ease"
+              fontWeight="medium"
             >
-              设置
+              {language === 'zh' ? 'EN' : '中'}
             </Button>
-            
-            <Button 
-              size="sm" 
-              onClick={handleLogout} 
-              colorScheme="brand"
-            >
-              退出
-            </Button>
-          </HStack>
-        </Flex>
-      </Box>
-      
-      {/* 欢迎信息和连续记录天数 */}
-      <Box bg="brand.50" p={4} borderRadius="md" boxShadow="sm">
-        <Flex justify="space-between" align="center">
-          <Text fontWeight="medium">欢迎回来, {user?.name}！</Text>
-          <HStack>
-            <Text>连续记录: </Text>
-            <Badge colorScheme="brand" fontSize="md" borderRadius="full" px={3}>
-              {consecutiveDays} 天
-            </Badge>
-          </HStack>
-        </Flex>
-      </Box>
+          </Tooltip>
+          
+          <IconButton
+            aria-label={t('settings')}
+            icon={<SettingsIcon />}
+            onClick={onSettingsOpen}
+            variant="ghost"
+            color="neutrals.800"
+            _hover={{ color: "brand.500", transform: "rotate(45deg)" }}
+            transition="all 0.3s ease"
+          />
+          
+          <Button 
+            size="sm" 
+            onClick={handleLogout} 
+            colorScheme="brand"
+          >
+            {t('logout')}
+          </Button>
+        </HStack>
+      </Flex>
 
-      <Tabs index={activeTab} onChange={setActiveTab} variant="enclosed" colorScheme="brand">
-        <TabList>
-          <Tab _selected={{ color: 'brand.700', borderColor: 'brand.500', borderBottomColor: 'white' }}>写日记</Tab>
-          <Tab _selected={{ color: 'brand.700', borderColor: 'brand.500', borderBottomColor: 'white' }}>查看日记</Tab>
-          <Tab _selected={{ color: 'brand.700', borderColor: 'brand.500', borderBottomColor: 'white' }}>心情日历</Tab>
+      {/* 欢迎信息和连续记录天数 */}
+      <Flex
+        mb={6}
+        p={4}
+        borderRadius="xl"
+        align="center"
+        justify="space-between"
+        flexDirection={{ base: "column", sm: "row" }}
+        gap={{ base: 4, sm: 0 }}
+        color={colorMode === 'dark' ? "whiteAlpha.900" : "gray.700"}
+        textShadow="0 2px 4px rgba(0,0,0,0.1)"
+      >
+        <Text 
+          fontSize={{ base: "md", sm: "lg" }}
+          fontFamily={language === 'en' ? "'Leira', cursive" : "inherit"}
+          fontWeight={language === 'en' ? "bold" : "medium"}
+        >
+          {t('welcome')}, {user?.name}！
+        </Text>
+        <HStack spacing={3}>
+          <Text 
+            fontSize={{ base: "sm", sm: "md" }}
+            fontFamily={language === 'en' ? "'Leira', cursive" : "inherit"}
+            fontWeight={language === 'en' ? "bold" : "medium"}
+          >
+            {t('consecutiveDays')}
+          </Text>
+          <Badge 
+            colorScheme="brand" 
+            fontSize={{ base: "sm", sm: "md" }}
+            borderRadius="full" 
+            px={4} 
+            py={1}
+            bg="rgba(234, 108, 60, 0.2)"
+            border="1px solid rgba(234, 108, 60, 0.3)"
+            boxShadow="0 2px 4px rgba(0,0,0,0.1)"
+            fontFamily={language === 'en' ? "'Leira', cursive" : "inherit"}
+            fontWeight={language === 'en' ? "bold" : "medium"}
+            textTransform="none"
+          >
+            {consecutiveDays} {t('days')}
+          </Badge>
+        </HStack>
+      </Flex>
+
+      <Tabs 
+        index={activeTab} 
+        onChange={setActiveTab} 
+        variant="glass" 
+        colorScheme="brand"
+      >
+        <TabList
+          p={1}
+          bg="rgba(255, 255, 255, 0.2)"
+          borderRadius="lg"
+          boxShadow="sm"
+          border="1px solid rgba(255, 255, 255, 0.2)"
+          mb={4}
+        >
+          <Tab
+            _selected={{
+              color: 'white',
+              bg: 'brand.500',
+              boxShadow: 'md'
+            }}
+            borderRadius="md"
+            fontWeight="medium"
+            mx={1}
+            py={2}
+            transition="all 0.2s"
+            fontFamily={language === 'en' ? "'Leira', cursive" : "inherit"}
+          >
+            {t('writeDiary')}
+          </Tab>
+          <Tab
+            _selected={{
+              color: 'white',
+              bg: 'brand.500',
+              boxShadow: 'md'
+            }}
+            borderRadius="md"
+            fontWeight="medium"
+            mx={1}
+            py={2}
+            transition="all 0.2s"
+            fontFamily={language === 'en' ? "'Leira', cursive" : "inherit"}
+          >
+            {t('viewDiary')}
+          </Tab>
+          <Tab
+            _selected={{
+              color: 'white',
+              bg: 'brand.500',
+              boxShadow: 'md'
+            }}
+            borderRadius="md"
+            fontWeight="medium"
+            mx={1}
+            py={2}
+            transition="all 0.2s"
+            fontFamily={language === 'en' ? "'Leira', cursive" : "inherit"}
+          >
+            {t('moodCalendar')}
+          </Tab>
         </TabList>
         
         <TabPanels>
           {/* 写日记面板 */}
-          <TabPanel>
-            <VStack spacing={4} align="stretch" boxShadow="md" p={6} borderRadius="md" bg="white">
+          <TabPanel p={0}>
+            <Box
+              p={6}
+              borderRadius="xl"
+              bg="rgba(255, 255, 255, 0.2)"
+              boxShadow="lg"
+              border="1px solid rgba(255, 255, 255, 0.2)"
+              transform="translateY(0)"
+              transition="all 0.3s"
+              _hover={{
+                transform: "translateY(-5px)",
+                boxShadow: "xl"
+              }}
+            >
+              <VStack spacing={4} align="stretch">
               {isEditing && (
-                <Box bg="yellow.100" p={3} borderRadius="md">
-                  <Text>您正在编辑 {format(parseISO(editingDiary!.date), 'yyyy年MM月dd日')} 的日记</Text>
-                  <Button size="sm" mt={2} onClick={cancelEditing}>取消编辑</Button>
+                  <Box bg="rgba(254, 252, 191, 0.6)" p={3} borderRadius="md">
+                  <Text>{t('editingDiary')} {format(parseISO(editingDiary!.date), 'yyyy年MM月dd日')} {t('diaryDate')}</Text>
+                  <Button size="sm" mt={2} onClick={cancelEditing}>{t('cancelEdit')}</Button>
                 </Box>
               )}
               
               <FormControl>
-                <FormLabel>日期</FormLabel>
+                <FormLabel>{t('date')}</FormLabel>
                 <Input 
                   type="date" 
                   value={selectedDate}
                   onChange={(e) => setSelectedDate(e.target.value)}
+                  bg="rgba(255, 255, 255, 0.3)"
                 />
               </FormControl>
 
               <FormControl>
-                <FormLabel>今日心情</FormLabel>
+                <FormLabel>{t('mood')}</FormLabel>
                 <HStack spacing={2} wrap="wrap">
                   {moodEmojis.map((emoji) => (
                     <Button 
@@ -1112,6 +1693,7 @@ function App() {
                       variant={selectedMood === emoji ? "solid" : "outline"}
                       colorScheme={selectedMood === emoji ? "teal" : "gray"}
                       fontSize="20px"
+                      bg={selectedMood === emoji ? undefined : "rgba(255, 255, 255, 0.3)"}
                     >
                       {emoji}
                     </Button>
@@ -1120,33 +1702,44 @@ function App() {
               </FormControl>
 
               <FormControl>
-                <FormLabel>今日记录 (可使用 #标签 添加标签)</FormLabel>
+                <FormLabel>{t('content')} {t('tagTip')}</FormLabel>
                 <Textarea 
-                  placeholder="写下今天的心情和故事... 可以使用 #工作 #生活 等标签" 
+                  placeholder={t('contentPlaceholder')}
                   size="lg" 
                   minH="200px"
                   value={content}
                   onChange={(e) => setContent(e.target.value)}
+                  bg="rgba(255, 255, 255, 0.3)"
+                  border="1px solid rgba(255, 255, 255, 0.2)"
+                  borderRadius="md"
+                  _hover={{ borderColor: "brand.500" }}
+                  _focus={{ borderColor: "brand.500", boxShadow: "0 0 0 1px #EA6C3C" }}
                 />
               </FormControl>
 
               {/* 标签输入部分 */}
               <FormControl>
-                <FormLabel>添加标签</FormLabel>
+                <FormLabel>{t('addTag')}</FormLabel>
                 <Flex>
                   <Input 
-                    placeholder="输入标签..." 
+                    placeholder={t('inputTag')}
                     value={tagInput}
                     onChange={(e) => setTagInput(e.target.value)}
                     mr={2}
+                    bg="rgba(255, 255, 255, 0.3)"
+                    border="1px solid rgba(255, 255, 255, 0.2)"
+                    _hover={{ borderColor: "brand.500" }}
+                    _focus={{ borderColor: "brand.500", boxShadow: "0 0 0 1px #EA6C3C" }}
                   />
                   <Button 
                     onClick={addTag} 
                     leftIcon={<AddIcon />}
-                    colorScheme="teal"
+                    colorScheme="brand"
                     isDisabled={!tagInput || tags.includes(tagInput)}
+                    _hover={{ transform: "translateY(-2px)", boxShadow: "md" }}
+                    transition="all 0.2s"
                   >
-                    添加
+                    {t('add')}
                   </Button>
                 </Flex>
                 
@@ -1170,12 +1763,14 @@ function App() {
               </FormControl>
 
               <FormControl>
-                <FormLabel>添加图片</FormLabel>
+                <FormLabel>{t('addImage')}</FormLabel>
                 <Input
                   type="file"
                   accept="image/*"
                   onChange={handleImageChange}
                   p={1}
+                  bg="rgba(255, 255, 255, 0.2)"
+                  borderRadius="md"
                 />
                 {imagePreview && (
                   <Box mt={2}>
@@ -1195,23 +1790,31 @@ function App() {
                 onClick={handleSaveDiary}
                 mt={4}
               >
-                保存日记
+                {t('save')}
               </Button>
             </VStack>
+            </Box>
           </TabPanel>
           
           {/* 历史记录面板 */}
           <TabPanel>
+            <Box
+              p={6}
+              borderRadius="xl"
+              bg="rgba(255, 255, 255, 0.2)"
+              boxShadow="lg"
+              border="1px solid rgba(255, 255, 255, 0.2)"
+            >
             <VStack spacing={4} align="stretch">
               <Flex justify="space-between" align="center">
-                <Heading as="h2" size="md">我的日记</Heading>
+                <Heading as="h2" size="md" fontFamily={language === 'zh' ? "cursive" : "leira"}>{t('myDiary')}</Heading>
                 <HStack spacing={2}>
                   <Menu>
-                    <MenuButton as={Button} rightIcon={<ChevronDownIcon />} size="sm">
-                      {selectedTag ? `标签: #${selectedTag}` : '全部日记'}
+                      <MenuButton as={Button} rightIcon={<ChevronDownIcon />} size="sm" bg="rgba(255, 255, 255, 0.3)">
+                      {selectedTag ? `${t('tag')}: #${selectedTag}` : t('allDiaries')}
                     </MenuButton>
-                    <MenuList>
-                      <MenuItem onClick={() => setSelectedTag(null)}>全部日记</MenuItem>
+                      <MenuList bg="rgba(255, 255, 255, 0.8)">
+                      <MenuItem onClick={() => setSelectedTag(null)}>{t('allDiaries')}</MenuItem>
                       <Divider />
                       {allTags.map(tag => (
                         <MenuItem key={tag} onClick={() => setSelectedTag(tag)}>
@@ -1224,25 +1827,30 @@ function App() {
               </Flex>
               
               {filteredDiaries.length === 0 ? (
-                <Text textAlign="center" py={10} color="gray.500">
-                  暂无日记记录
+                  <Text textAlign="center" py={10} color="neutrals.800">
+                  {t('noDiaries')}
                 </Text>
               ) : (
                 <SimpleGrid columns={[1, null, 2]} spacing={4}>
                   {filteredDiaries
                     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
                     .map(diary => (
-                    <Card key={diary.id} variant="outline" cursor="pointer" 
+                      <Card 
+                        key={diary.id} 
+                        variant="glass" 
+                        cursor="pointer" 
                           onClick={() => openDiaryDetail(diary)}
-                          _hover={{ boxShadow: 'md', transform: 'translateY(-2px)' }}
-                          transition="all 0.2s">
+                        _hover={{ boxShadow: 'lg', transform: 'translateY(-4px)' }}
+                        transition="all 0.3s ease"
+                        bg="rgba(255, 255, 255, 0.3)"
+                      >
                       <CardHeader pb={2}>
                         <Flex justify="space-between" align="center">
                           <HStack>
                             <Text fontSize="2xl">{diary.mood}</Text>
                             <Text fontWeight="bold">{format(parseISO(diary.date), 'yyyy年MM月dd日')}</Text>
                           </HStack>
-                          <Text fontSize="sm" color="gray.500">
+                            <Text fontSize="sm" color="neutrals.800">
                             {format(parseISO(diary.createdAt), 'HH:mm')}
                           </Text>
                         </Flex>
@@ -1252,7 +1860,7 @@ function App() {
                         {diary.tags && diary.tags.length > 0 && (
                           <HStack mt={2} spacing={2} wrap="wrap">
                             {diary.tags.map(tag => (
-                              <Badge key={tag} colorScheme="brand">#{tag}</Badge>
+                                <Badge key={tag} colorScheme="brand" bg="rgba(234, 108, 60, 0.2)" color="brand.700">#{tag}</Badge>
                             ))}
                           </HStack>
                         )}
@@ -1262,30 +1870,45 @@ function App() {
                 </SimpleGrid>
               )}
             </VStack>
+            </Box>
           </TabPanel>
           
           {/* "心情日历"的标签页 */}
           <TabPanel>
-            <VStack spacing={4} align="stretch">
-              <Heading as="h2" size="md">心情日历</Heading>
-              <Box>
-                {renderCalendar()}
-              </Box>
-              <Text fontSize="sm" color="gray.500" textAlign="center">
-                带有表情符号的日期表示该日有日记记录，点击可查看详情～
-              </Text>
-            </VStack>
+            <Box
+              p={6}
+              borderRadius="xl"
+              bg="rgba(255, 255, 255, 0.2)"
+              boxShadow="lg"
+              border="1px solid rgba(255, 255, 255, 0.2)"
+            >
+              <VStack spacing={4} align="stretch">
+                <Heading as="h2" size="md" fontFamily={language === 'zh' ? "cursive" : "leira"}>{t('moodCalendar')}</Heading>
+                <Box>
+                  {renderCalendar()}
+                </Box>
+                <Text fontSize="sm" color="gray.500" textAlign="center">
+                   
+                </Text>
+              </VStack>
+            </Box>
           </TabPanel>
         </TabPanels>
       </Tabs>
       
       {/* 日记详情模态框 */}
       <Modal isOpen={isDetailOpen} onClose={onDetailClose} size="xl">
-        <ModalOverlay />
-        <ModalContent>
+        <ModalOverlay bg="rgba(0, 0, 0, 0.4)" backdropFilter="blur(8px)" />
+        <ModalContent 
+          bg="rgba(255, 255, 255, 0.86)"
+          borderRadius="xl"
+          boxShadow="xl"
+          border="1px solid rgba(255, 255, 255, 0.3)"
+          color="gray.800"
+        >
           {selectedDiary && (
             <>
-              <ModalHeader>
+              <ModalHeader bg="rgba(255, 255, 255, 0.9)" borderTopRadius="xl">
                 <HStack>
                   <Text fontSize="2xl">{selectedDiary.mood}</Text>
                   <Text>{format(parseISO(selectedDiary.date), 'yyyy年MM月dd日')}</Text>
@@ -1307,7 +1930,7 @@ function App() {
                   {selectedDiary.tags && selectedDiary.tags.length > 0 && (
                     <HStack mt={2} spacing={2} wrap="wrap">
                       {selectedDiary.tags.map(tag => (
-                        <Badge key={tag} colorScheme="brand">#{tag}</Badge>
+                        <Badge key={tag} colorScheme="brand" bg="rgba(234, 108, 60, 0.1)" color="brand.700">#{tag}</Badge>
                       ))}
                     </HStack>
                   )}
@@ -1316,37 +1939,32 @@ function App() {
                   
                   <Box>
                     <Flex justify="space-between" align="center" mb={2}>
-                      <Heading size="sm">聊一下</Heading>
+                      <Heading size="sm">{t('chatAbout')}</Heading>
                       <Button 
                         size="sm" 
                         leftIcon={<StarIcon />} 
-                        colorScheme="purple"
+                        colorScheme="brand"
                         onClick={generateAiAnalysis}
                         isLoading={isAnalyzing}
                       >
-                        聊一下
+                        {t('chatAbout')}
                       </Button>
                     </Flex>
                     
                     {aiAnalysis ? (
-                      <Box p={3} bg="gray.50" borderRadius="md" position="relative">
+                      <Box 
+                        p={3} 
+                        borderRadius="xl" 
+                        position="relative"
+                        bg="rgba(255, 255, 255, 0.3)"
+                        border="1px solid rgba(255, 255, 255, 0.2)"
+                        boxShadow="sm"
+                      >
                         <Text whiteSpace="pre-wrap">{aiAnalysis}</Text>
-                        <Button 
-                          position="absolute"
-                          right="3"
-                          bottom="3"
-                          variant="ghost"
-                          onClick={handleLike}
-                          aria-label="点赞"
-                          color={isLiked ? "red.500" : "gray.400"}
-                          _hover={{ color: isLiked ? "red.600" : "gray.600" }}
-                        >
-                          <span style={{ fontSize: "1.5rem" }}>👍</span>
-                        </Button>
                       </Box>
                     ) : (
-                      <Text color="gray.500" fontSize="sm">
-                        点击"聊一下"按钮，启动AI聊天。
+                      <Text color="neutrals.800" fontSize="sm">
+                        {t('clickChat')}
                       </Text>
                     )}
                   </Box>
@@ -1359,10 +1977,21 @@ function App() {
                   leftIcon={<EditIcon />}
                   onClick={() => editDiary(selectedDiary)}
                 >
-                  编辑
+                  {t('edit')}
                 </Button>
-                <Button variant="ghost" onClick={onDetailClose}>
-                  关闭
+                <Button 
+                  variant="glass" 
+                  mr={3}
+                  onClick={handleLike}
+                  aria-label={t('like')}
+                  color={isLiked ? "red.500" : "neutrals.800"}
+                  _hover={{ color: isLiked ? "red.600" : "brand.500" }}
+                >
+                  <span style={{ fontSize: "1.0rem", marginRight: "4px" }}>❤️</span>
+                  {isLiked ? t('liked') : t('like')}
+                </Button>
+                <Button variant="glass" onClick={onDetailClose}>
+                  {t('close')}
                 </Button>
               </ModalFooter>
             </>
@@ -1372,17 +2001,23 @@ function App() {
       
       {/* 设置模态框 */}
       <Modal isOpen={isSettingsOpen} onClose={onSettingsClose}>
-        <ModalOverlay />
-        <ModalContent>
-          <ModalHeader>设置</ModalHeader>
+        <ModalOverlay bg="rgba(0, 0, 0, 0.4)" backdropFilter="blur(10px)" />
+        <ModalContent
+          bg="rgba(255, 255, 255, 0.85)"
+          borderRadius="xl"
+          boxShadow="xl"
+          border="1px solid rgba(255, 255, 255, 0.3)"
+          backdropFilter="blur(10px)"
+        >
+          <ModalHeader fontWeight="bold" color="gray.700">{t('settings')}</ModalHeader>
           <ModalCloseButton />
           <ModalBody>
             <VStack spacing={4} align="stretch">
-              <Heading size="sm">日记提醒</Heading>
+              <Heading size="sm" color="gray.700">{t('diaryReminder')}</Heading>
               
               <FormControl display="flex" alignItems="center">
-                <FormLabel htmlFor="reminder-toggle" mb="0">
-                  启用每日提醒
+                <FormLabel htmlFor="reminder-toggle" mb="0" color="gray.700" fontWeight="medium">
+                  {t('enableReminder')}
                 </FormLabel>
                 <Switch 
                   id="reminder-toggle" 
@@ -1392,55 +2027,66 @@ function App() {
               </FormControl>
               
               <FormControl isDisabled={!reminderEnabled}>
-                <FormLabel>提醒时间</FormLabel>
+                <FormLabel>{t('reminderTime')}</FormLabel>
                 <Input 
                   type="time" 
                   value={reminderTime}
                   onChange={(e) => setReminderTime(e.target.value)}
+                  bg="rgba(255, 255, 255, 0.3)"
                 />
               </FormControl>
-              
+
               <Divider />
               
-              <Heading size="sm">账号信息</Heading>
+              <Heading size="sm">{t('accountInfo')}</Heading>
               
               <FormControl>
-                <FormLabel>用户名</FormLabel>
+                <FormLabel>{t('username')}</FormLabel>
                 <Input 
                   value={user?.name || ''} 
                   onChange={(e) => setUser(prev => prev ? {...prev, name: e.target.value} : null)}
+                  bg="rgba(255, 255, 255, 0.3)"
                 />
               </FormControl>
               
               <FormControl>
-                <FormLabel>用户邮箱</FormLabel>
-                <Input value={user?.email || ''} isReadOnly />
+                <FormLabel>{t('email')}</FormLabel>
+                <Input 
+                  value={user?.email || ''} 
+                  isReadOnly
+                  bg="rgba(255, 255, 255, 0.2)"
+                />
               </FormControl>
               
               <FormControl>
-                <FormLabel>用户ID</FormLabel>
-                <Input value={user?.id || ''} isReadOnly />
+                <FormLabel>{t('userId')}</FormLabel>
+                <Input 
+                  value={user?.id || ''} 
+                  isReadOnly
+                  bg="rgba(255, 255, 255, 0.2)"
+                />
               </FormControl>
             </VStack>
           </ModalBody>
           <ModalFooter>
             <Button variant="ghost" mr={3} onClick={onSettingsClose}>
-              取消
+              {t('cancel')}
             </Button>
             <Button colorScheme="teal" onClick={saveSettings}>
-              保存设置
+              {t('saveSettings')}
             </Button>
           </ModalFooter>
         </ModalContent>
       </Modal>
-    </VStack>
+    </Box>
   );
 
+  // 使用壁纸背景包装应用内容
   return (
     <ChakraProvider theme={theme}>
-      <Container maxW="container.md" py={8}>
-        {!isLoggedIn ? renderAuthForm() : renderMainApp()}
-      </Container>
+      <WallpaperBackground enablePullToRefresh={isLoggedIn}>
+        {isLoggedIn ? renderMainApp() : renderAuthForm()}
+      </WallpaperBackground>
     </ChakraProvider>
   );
 }
