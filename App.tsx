@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Box, ChakraProvider, VStack, Heading, 
   Input, Textarea, Button, HStack, Image, 
@@ -11,19 +11,58 @@ import {
   Menu, MenuButton, MenuList, MenuItem,
   Tag, TagLabel, TagCloseButton, Wrap, WrapItem,
   extendTheme, Center, Switch, Grid, GridItem,
-  Icon, useColorMode, IconButton, Tooltip
+  Icon, useColorMode, IconButton, Spinner, Tooltip,
+  Editable, EditablePreview, EditableInput
 } from '@chakra-ui/react';
 import { format, parseISO, differenceInDays, startOfMonth, endOfMonth, addDays, isSameDay, isSameMonth } from 'date-fns';
-import { ChevronDownIcon, CalendarIcon, SettingsIcon, StarIcon, AddIcon, EditIcon } from '@chakra-ui/icons';
-import { db, auth } from './FirebaseConfig';
+import { ChevronDownIcon, CalendarIcon, SettingsIcon, StarIcon, AddIcon, EditIcon, ExternalLinkIcon, CheckIcon } from '@chakra-ui/icons';
+import { db, auth, storage } from './FirebaseConfig';
 import { collection, addDoc, getDocs, query, where, updateDoc, doc, setDoc, getDoc } from 'firebase/firestore';
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile } from 'firebase/auth';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 // 引入动态壁纸相关组件
 import WallpaperBackground from './components/WallpaperBackground';
+// 导入心情颜色映射
+import { moodColors } from './utils/LocalWallpapers';
+
+// 添加自定义字体
+const CustomStyles = () => (
+  <style>
+    {`
+    @font-face {
+      font-family: 'Forte';
+      src: url('/FORTE.TTF') format('truetype');
+      font-weight: normal;
+      font-style: normal;
+      font-display: swap;
+    }
+    `}
+  </style>
+);
+
+// 获取心情对应的颜色，带默认值
+const getMoodColor = (mood: string, opacity: number = 1): string => {
+  // 确保emoji存在于映射中，否则使用默认颜色
+  const baseColor = moodColors[mood as keyof typeof moodColors] || '#E9AFA3';
+  
+  // 如果需要透明度，添加透明度
+  if (opacity < 1) {
+    // 提取RGB部分
+    const r = parseInt(baseColor.slice(1, 3), 16);
+    const g = parseInt(baseColor.slice(3, 5), 16);
+    const b = parseInt(baseColor.slice(5, 7), 16);
+    return `rgba(${r}, ${g}, ${b}, ${opacity})`;
+  }
+  
+  return baseColor;
+};
 
 // 语言配置
 type Language = 'zh' | 'en';
+
+// 添加更多常用表情符号
+const commonEmojis: string[] = ['🎯', '✨', '🚀', '💪', '📚', '🧠', '🏃', '🌱', '💼', '🌟', '❤️', '🔥', '🙌', '✅', '🎨'];
 
 // 翻译文本映射
 const translations = {
@@ -64,7 +103,7 @@ const translations = {
     chatAbout: '聊一下',
     editingDiary: '您正在编辑',
     cancelEdit: '取消编辑',
-    diaryDate: '的日记',
+    diaryDate: '',
     tagTip: '(可使用 #标签 添加标签)',
     contentPlaceholder: '写下今天的心情和故事... 可以使用 #工作 #生活 等标签',
     previousMonth: '上个月',
@@ -90,7 +129,8 @@ const translations = {
     wed: '三',
     thu: '四',
     fri: '五',
-    sat: '六'
+    sat: '六',
+    goalPlaceholder: '分享一下这周的小目标吧'
   },
   en: {
     myDiary: 'My Diary',
@@ -155,7 +195,8 @@ const translations = {
     wed: 'Wed',
     thu: 'Thu',
     fri: 'Fri',
-    sat: 'Sat'
+    sat: 'Sat',
+    goalPlaceholder: 'Share your goals for this week'
   }
 };
 
@@ -163,24 +204,29 @@ const translations = {
 const theme = extendTheme({
   colors: {
     brand: {
-      50: "#FEF5E7",
-      100: "#FDE8C4",
-      200: "#FBDBA1",
-      300: "#F9CD7E",
-      400: "#F7C05B",
-      500: "#EA6C3C", // 主要橙红色
-      600: "#D9603B",
-      700: "#C7543A",
-      800: "#B64939",
-      900: "#A43D38",
+      50: '#FDF0ED',  // 珊瑚粉超浅色
+      100: '#F9DED7', // 珊瑚粉浅色
+      200: '#F1C7BD', // 珊瑚粉中浅色 
+      300: '#EDB9AD', // 珊瑚粉中色
+      400: '#E9AFA3', // 珊瑚粉 - 主色调
+      500: '#E39A8B', // 珊瑚粉加深
+      600: '#CC7D6E', // 珊瑚粉深色
+      700: '#B56151', // 珊瑚粉极深色
+      800: '#96483A', // 褐色过渡
+      900: '#7A3A2F', // 深褐色
     },
     neutrals: {
-      50: "#F9F7F4",  // 米白色
-      100: "#F0EAE4",  // 浅奶咖色
-      200: "#E6DED5",  // 奶咖色
-      800: "#423C36",  // 深灰色
-      900: "#2D2A25",  // 接近黑色
-    }
+      50: '#FFFFFF',  // 纯白
+      100: '#F9F9FA',
+      200: '#F0F1F3',
+      300: '#E6E8EC',
+      400: '#D1D6DF',
+      500: '#B7BEC9',
+      600: '#8E99AA',
+      700: '#646F83',
+      800: '#3A405A', // 深海蓝
+      900: '#1F2233', // 深蓝黑
+    },
   },
   styles: {
     global: {
@@ -262,11 +308,11 @@ const theme = extendTheme({
             borderRadius: 'md',
             border: '1px solid rgba(255, 255, 255, 0.2)',
             _hover: {
-              borderColor: 'brand.500',
+              borderColor: 'brand.400',
             },
             _focus: {
-              borderColor: 'brand.500',
-              boxShadow: '0 0 0 1px #EA6C3C',
+              borderColor: 'brand.400',
+              boxShadow: '0 0 0 1px #E9AFA3',
             },
           }
         }
@@ -282,11 +328,11 @@ const theme = extendTheme({
           borderRadius: 'md',
           border: '1px solid rgba(255, 255, 255, 0.2)',
           _hover: {
-            borderColor: 'brand.500',
+            borderColor: 'brand.400',
           },
           _focus: {
-            borderColor: 'brand.500',
-            boxShadow: '0 0 0 1px #EA6C3C',
+            borderColor: 'brand.400',
+            boxShadow: '0 0 0 1px #E9AFA3',
           },
         }
       },
@@ -361,6 +407,9 @@ const theme = extendTheme({
         },
         leira: {
           fontFamily: `'Leira-Regular', 'Leira', cursive`,
+        },
+        forte: {
+          fontFamily: `'Forte', cursive`,
         }
       }
     },
@@ -374,6 +423,9 @@ const theme = extendTheme({
         },
         leira: {
           fontFamily: `'Leira-Regular', 'Leira', cursive`,
+        },
+        forte: {
+          fontFamily: `'Forte', cursive`,
         }
       }
     }
@@ -383,6 +435,8 @@ const theme = extendTheme({
     body: `'SF Pro', -apple-system, BlinkMacSystemFont, sans-serif`,
     cursive: `'Ma Shan Zheng', '尔雅趣宋体', cursive`,
     leira: `'Leira-Regular', 'Leira', cursive`,
+    forte: `'Forte', cursive`,
+    bodoni: `'Bodoni MT', 'Bodoni', serif`,
   },
 });
 
@@ -394,6 +448,8 @@ interface User {
   preferences?: {
     reminderTime?: string;
     reminderEnabled?: boolean;
+    shortGoal?: string;
+    shortGoalEmoji?: string;
   }
 }
 
@@ -472,6 +528,14 @@ function App() {
   const [selectedDate, setSelectedDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
   const [selectedMood, setSelectedMood] = useState<string>('😊');
   const [content, setContent] = useState<string>('');
+  // 添加短期目标状态
+  const [shortGoal, setShortGoal] = useState<string>('');
+  // 添加短期目标emoji状态
+  const [shortGoalEmoji, setShortGoalEmoji] = useState<string>('🎯');
+  // 添加输入框交互状态
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [isInputFocused, setIsInputFocused] = useState(false);
+  const [isEmojiMenuOpen, setIsEmojiMenuOpen] = useState(false);
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [_image, setImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -500,8 +564,11 @@ function App() {
   const toast = useToast();
 
   const [consecutiveDays, setConsecutiveDays] = useState(0);
-  const [isEditing, setIsEditing] = useState(false);
+  // 添加状态用于判断输入框是否处于编辑状态
+  const [isEditing, setIsEditing] = useState<boolean>(false);
   const [editingDiary, setEditingDiary] = useState<DiaryEntry | null>(null);
+  // 添加状态来区分编辑类型：短期目标编辑或日记编辑
+  const [editingType, setEditingType] = useState<'goal' | 'diary' | null>(null);
 
   const [isLiked, setIsLiked] = useState(false);
 
@@ -509,6 +576,43 @@ function App() {
   const [analysisId, setAnalysisId] = useState<string>('');
 
   const [currentMonth, setCurrentMonth] = useState(new Date());
+  // 添加状态用于判断背景是否较浅
+  const [isLightBackground, setIsLightBackground] = useState<boolean>(false);
+  // 引用当前壁纸URL
+  const wallpaperUrlRef = useRef<string | null>(null);
+  
+  // 处理短期目标编辑完成的函数
+  const handleGoalEditComplete = () => {
+    setTimeout(() => {
+      // 只有当输入框和emoji菜单都未激活时才退出编辑模式
+      if (!isInputFocused && !isEmojiMenuOpen) {
+        setIsEditing(false);
+      }
+    }, 200);
+  };
+
+  // 焦点输入框的函数
+  const focusInput = () => {
+    // 确保编辑模式开启
+    setIsEditing(true);
+    setIsInputFocused(true);
+    // 设置编辑类型为目标编辑
+    setEditingType('goal');
+    
+    // 简化聚焦逻辑，使用更安全的方法
+    try {
+      setTimeout(() => {
+        if (inputRef.current) {
+          inputRef.current.focus();
+          console.log("成功聚焦到输入框");
+        } else {
+          console.warn("找不到输入框引用");
+        }
+      }, 200);
+    } catch (e) {
+      console.error("聚焦操作失败:", e);
+    }
+  };
 
   // 在App组件中添加Firebase Auth状态监听
   useEffect(() => {
@@ -543,6 +647,14 @@ function App() {
             // 设置偏好
             setReminderTime(fullUser.preferences.reminderTime);
             setReminderEnabled(fullUser.preferences.reminderEnabled);
+            // 恢复短期目标
+            if (fullUser.preferences.shortGoal) {
+              setShortGoal(fullUser.preferences.shortGoal);
+            }
+            // 恢复短期目标emoji
+            if (fullUser.preferences.shortGoalEmoji) {
+              setShortGoalEmoji(fullUser.preferences.shortGoalEmoji);
+            }
           } else {
             // 用户在Firestore中不存在，使用基本信息
             setUser({
@@ -819,12 +931,13 @@ function App() {
     setTags(diary.tags || []);
     setImagePreview(diary.imageUrl || null);
     setIsEditing(true);
+    setEditingType('diary'); // 设置编辑类型为diary
     setActiveTab(0); // 切换到写日记标签页
     onDetailClose(); // 关闭详情模态框
     
     toast({
       title: "正在编辑日记",
-      description: `您正在编辑 ${format(parseISO(diary.date), 'yyyy年MM月dd日')} 的日记`,
+      description: `您正在编辑模式`,
       status: "info",
       duration: 3000,
       isClosable: true,
@@ -835,12 +948,7 @@ function App() {
   const cancelEditing = () => {
     setIsEditing(false);
     setEditingDiary(null);
-    setSelectedDate(format(new Date(), 'yyyy-MM-dd'));
-    setSelectedMood('😊');
-    setContent('');
-    setTags([]);
-    setImage(null);
-    setImagePreview(null);
+    setEditingType(null); // 重置编辑类型
   };
   
   // 打开日记详情
@@ -1000,7 +1108,9 @@ function App() {
           preferences: {
             ...user.preferences,
             reminderTime,
-            reminderEnabled
+            reminderEnabled,
+            shortGoal,
+            shortGoalEmoji
           }
         };
         
@@ -1012,7 +1122,9 @@ function App() {
           email: user.email,
           preferences: {
             reminderTime,
-            reminderEnabled
+            reminderEnabled,
+            shortGoal,
+            shortGoalEmoji
           }
         }, { merge: true });
         
@@ -1045,6 +1157,41 @@ function App() {
   // 获取所有标签
   const allTags = Array.from(new Set(diaries.flatMap(diary => diary.tags || [])));
 
+  // 添加自动保存短期目标的功能
+  useEffect(() => {
+    // 当短期目标变化时，自动保存到用户文档
+    if (user && auth.currentUser && (shortGoal !== user.preferences?.shortGoal || shortGoalEmoji !== user.preferences?.shortGoalEmoji)) {
+      const autoSaveGoal = async () => {
+        try {
+          await setDoc(doc(db, 'users', user.id), {
+            preferences: {
+              ...(user.preferences || {}),
+              shortGoal,
+              shortGoalEmoji
+            }
+          }, { merge: true });
+          
+          // 更新本地用户状态
+          setUser(prev => prev ? {
+            ...prev,
+            preferences: {
+              ...(prev.preferences || {}),
+              shortGoal,
+              shortGoalEmoji
+            }
+          } : null);
+          
+        } catch (error) {
+          console.error("自动保存短期目标失败:", error);
+        }
+      };
+      
+      // 使用防抖延迟保存，避免频繁更新
+      const timeoutId = setTimeout(autoSaveGoal, 1000);
+      return () => clearTimeout(timeoutId);
+    }
+  }, [shortGoal, shortGoalEmoji, user]);
+
   // 改进日记保存函数
   const handleSaveDiary = async () => {
     if (!content.trim()) {
@@ -1058,12 +1205,45 @@ function App() {
     }
     
     if (user && auth.currentUser) {
+      // 获取用户ID
+      const userId = auth.currentUser.uid;
+      console.log("保存日记使用用户ID:", userId);
+      
+      // 保留原有图片URL（如果是编辑模式）
+      let imageUrl = isEditing && editingDiary ? editingDiary.imageUrl : undefined;
+      
+      // 准备日记对象（不含新图片）
+      let diaryToSave: DiaryEntry;
+      
       try {
-        const userId = auth.currentUser.uid; // 直接从Firebase Auth获取
-        console.log("保存日记使用用户ID:", userId); // 调试日志
+        // 尝试上传图片（如果有新图片）
+        if (_image) {
+          try {
+            // 创建存储引用
+            const imagePath = `diary-images/${userId}/${Date.now()}_${_image.name}`;
+            const storageRef = ref(storage, imagePath);
+            
+            // 上传图片
+            await uploadBytes(storageRef, _image);
+            
+            // 获取下载URL
+            imageUrl = await getDownloadURL(storageRef);
+            console.log("图片已上传, URL:", imageUrl);
+          } catch (imageError) {
+            // 图片上传失败，但继续保存日记
+            console.error("图片上传失败:", imageError);
+            toast({
+              title: '图片上传失败',
+              description: '日记内容将被保存，但没有新图片',
+              status: 'warning',
+              duration: 3000,
+              isClosable: true,
+            });
+            // 保留原有图片URL（如果有）
+          }
+        }
         
-        let diaryToSave: DiaryEntry;
-        
+        // 创建或更新日记对象
         if (isEditing && editingDiary) {
           // 更新现有日记
           diaryToSave = {
@@ -1072,7 +1252,8 @@ function App() {
             mood: selectedMood,
             content,
             tags,
-            userId // 确保用户ID正确
+            userId,
+            imageUrl
           };
         } else {
           // 创建新日记
@@ -1081,9 +1262,10 @@ function App() {
             date: selectedDate,
             mood: selectedMood,
             content,
-            userId, // 使用Firebase Auth的用户ID
+            userId,
             tags,
             createdAt: new Date().toISOString(),
+            imageUrl
           };
         }
         
@@ -1099,11 +1281,31 @@ function App() {
           duration: 3000,
           isClosable: true,
         });
+        
+        // 重置表单状态
+        if (!isEditing) {
+          setContent('');
+          setTags([]);
+          setImage(null);
+          setImagePreview(null);
+          setSelectedMood('😊');
+        } else {
+          // 退出编辑模式
+          setIsEditing(false);
+          setEditingDiary(null);
+          setEditingType(null); // 重置编辑类型
+          setSelectedDate(format(new Date(), 'yyyy-MM-dd'));
+          setSelectedMood('😊');
+          setContent('');
+          setTags([]);
+          setImage(null);
+          setImagePreview(null);
+        }
       } catch (error) {
         console.error("保存日记错误:", error);
         toast({
           title: '保存失败，请重试',
-          description: '无法保存日记',
+          description: '无法保存日记内容',
           status: 'error',
           duration: 3000,
           isClosable: true,
@@ -1115,13 +1317,16 @@ function App() {
   const handleLike = async () => {
     setIsLiked(!isLiked);
     
-    // 可选：将点赞状态保存到数据库
-    if (!isLiked) {
-      try {
-        await saveLikeToDatabase(analysisId);
-      } catch (error) {
-        console.error('保存点赞失败:', error);
-      }
+    // 如果点赞被取消，则不需要保存到数据库
+    if (isLiked) return;
+    
+    // 确保有分析结果和ID
+    if (selectedDiary && aiAnalysis && analysisId) {
+      await saveLikeToDatabase(analysisId);
+    } else if (selectedDiary && aiAnalysis) {
+      // 如果分析结果没有ID（可能是老数据），使用替代标识
+      const fallbackId = `analysis_${selectedDiary.id}_${Date.now()}`;
+      await saveLikeToDatabase(fallbackId);
     }
   };
 
@@ -1214,6 +1419,7 @@ function App() {
             size="md" 
             color="brand.600"
             textAlign="center"
+            fontFamily={language === 'zh' ? "inherit" : "bodoni"}
           >
             {format(currentMonth, 'yyyy年MM月')}
           </Heading>
@@ -1233,7 +1439,9 @@ function App() {
               size="sm" 
               onClick={resetToCurrentMonth} 
               colorScheme="brand" 
-              bg="rgba(234, 108, 60, 0.2)"
+              bg={`${getMoodColor('😊', 0.2)}`}
+              color="brand.700"
+              border={`1px solid ${getMoodColor('😊', 0.4)}`}
               flex={{ base: 1, sm: "auto" }}
             >
               {t('today')}
@@ -1271,22 +1479,22 @@ function App() {
                   p={{ base: 1, sm: 2 }}
                   borderRadius="md"
                   bg={isToday 
-                    ? "rgba(251, 211, 141, 0.4)" 
+                    ? "rgba(233, 175, 163, 0.3)" 
                     : diary && isCurrentMonth 
-                      ? "rgba(255, 255, 255, 0.4)" 
+                      ? getMoodColor(diary.mood, 0.25)
                       : isCurrentMonth 
                         ? "rgba(255, 255, 255, 0.2)" 
                         : "rgba(245, 245, 245, 0.1)"}
                   cursor={diary ? "pointer" : "default"}
                   onClick={() => diary && openDiaryDetail(diary)}
                   _hover={diary ? { 
-                    bg: "rgba(251, 211, 141, 0.3)", 
+                    bg: diary ? getMoodColor(diary.mood, 0.4) : "rgba(233, 175, 163, 0.2)", 
                     transform: "translateY(-2px)", 
                     boxShadow: "sm" 
                   } : {}}
                   position="relative"
                   transition="all 0.2s"
-                  boxShadow={diary ? "0 2px 10px rgba(234, 108, 60, 0.05)" : "none"}
+                  boxShadow={diary ? `0 2px 8px ${getMoodColor(diary.mood, 0.25)}` : "none"}
                   minH={{ base: "40px", sm: "50px" }}
                   display="flex"
                   alignItems="center"
@@ -1323,6 +1531,123 @@ function App() {
     );
   };
 
+  // 检测背景亮度的函数
+  const detectBackgroundBrightness = (imageUrl: string) => {
+    if (!imageUrl || imageUrl === wallpaperUrlRef.current) return;
+    
+    wallpaperUrlRef.current = imageUrl;
+    
+    const img = document.createElement('img');
+    img.crossOrigin = "Anonymous";
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = img.width;
+      canvas.height = img.height;
+      
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      
+      ctx.drawImage(img, 0, 0);
+      
+      try {
+        // 获取图像中心区域的像素数据
+        const centerX = Math.floor(img.width / 2);
+        const centerY = Math.floor(img.height / 3); // 取上部1/3处(标题栏位置)
+        const radius = Math.floor(Math.min(img.width, img.height) / 8);
+        
+        const imageData = ctx.getImageData(
+          centerX - radius, 
+          centerY - radius, 
+          radius * 2, 
+          radius * 2
+        );
+        
+        // 计算区域平均亮度
+        let totalBrightness = 0;
+        let pixelCount = 0;
+        
+        for (let i = 0; i < imageData.data.length; i += 4) {
+          const r = imageData.data[i];
+          const g = imageData.data[i + 1];
+          const b = imageData.data[i + 2];
+          
+          // 计算像素亮度 (人眼感知权重: R=0.299, G=0.587, B=0.114)
+          const brightness = 0.299 * r + 0.587 * g + 0.114 * b;
+          totalBrightness += brightness;
+          pixelCount++;
+        }
+        
+        const averageBrightness = totalBrightness / pixelCount;
+        console.log("背景平均亮度:", averageBrightness);
+        
+        // 亮度阈值: 0-255，大于128认为是浅色背景
+        setIsLightBackground(averageBrightness > 180);
+      } catch (error) {
+        console.error("背景亮度检测失败:", error);
+      }
+    };
+    
+    img.onerror = () => {
+      console.error("背景图片加载失败:", imageUrl);
+    };
+    
+    img.src = imageUrl;
+  };
+  
+  // 当壁纸更改时检测亮度
+  useEffect(() => {
+    const wallpaperElement = document.querySelector("[data-wallpaper='true']") as HTMLElement;
+    if (wallpaperElement) {
+      const style = getComputedStyle(wallpaperElement);
+      const bgImage = style.backgroundImage;
+      
+      // 提取背景图片URL
+      const match = bgImage.match(/url\(["']?(.*?)["']?\)/);
+      if (match && match[1]) {
+        detectBackgroundBrightness(match[1]);
+      } else {
+        setIsLightBackground(false);
+      }
+    }
+  }, []);
+  
+  // 在渲染主应用部分添加壁纸监听
+  useEffect(() => {
+    // 创建MutationObserver监听DOM变化
+    const observer = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        if (mutation.type === 'attributes' && mutation.attributeName === 'style') {
+          const element = mutation.target as HTMLElement;
+          if (element.getAttribute('data-wallpaper') === 'true') {
+            const style = getComputedStyle(element);
+            const bgImage = style.backgroundImage;
+            
+            const match = bgImage.match(/url\(["']?(.*?)["']?\)/);
+            if (match && match[1]) {
+              detectBackgroundBrightness(match[1]);
+            }
+          }
+        }
+      });
+    });
+    
+    // 延迟初始化观察器，等待壁纸渲染
+    setTimeout(() => {
+      const wallpaperElement = document.querySelector("[data-wallpaper='true']");
+      if (wallpaperElement) {
+        observer.observe(wallpaperElement, { attributes: true });
+      }
+    }, 2000);
+    
+    return () => observer.disconnect();
+  }, []);
+  
+  // 格式化当前日期为简短格式
+  const getFormattedDate = () => {
+    const now = new Date();
+    return format(now, 'MM/dd');
+  };
+
   // 渲染认证表单
   const renderAuthForm = () => (
     <Box
@@ -1347,7 +1672,7 @@ function App() {
           as="h1" 
           size="xl" 
           textAlign="center" 
-          fontFamily="'Comic Sans MS', cursive" 
+          fontFamily={language === 'zh' ? "'Comic Sans MS', cursive" : "forte"} 
           color="brand.500"
         >
           {t('myDiary')}
@@ -1495,12 +1820,19 @@ function App() {
         mb={4}
       >
         <HStack spacing={4}>
-          <Icon as={CalendarIcon} color="brand.500" w={6} h={6} />
+          <Icon as={CalendarIcon} 
+            color={isLightBackground ? "brand.800" : "brand.500"} 
+            w={6} h={6} 
+            filter={isLightBackground ? "drop-shadow(0 1px 2px rgba(0,0,0,0.5))" : "none"}
+            transition="all 0.3s ease" 
+          />
           <Text 
             fontSize={{ base: "xl", sm: "2xl" }}
-            fontFamily={language === 'zh' ? "cursive" : "leira"}
-            color="brand.500"
+            fontFamily={language === 'zh' ? "cursive" : "forte"}
+            color={isLightBackground ? "brand.800" : "brand.500"}
             fontWeight="bold"
+            textShadow={isLightBackground ? "0 1px 2px rgba(0,0,0,0.5), 0 0 1px rgba(0,0,0,0.5)" : "0 2px 4px rgba(0,0,0,0.1)"}
+            transition="all 0.3s ease"
           >
             {t('myDiary')}
           </Text>
@@ -1555,18 +1887,240 @@ function App() {
         color={colorMode === 'dark' ? "whiteAlpha.900" : "gray.700"}
         textShadow="0 2px 4px rgba(0,0,0,0.1)"
       >
-        <Text 
-          fontSize={{ base: "md", sm: "lg" }}
-          fontFamily={language === 'en' ? "'Leira', cursive" : "inherit"}
-          fontWeight={language === 'en' ? "bold" : "medium"}
-        >
-          {t('welcome')}, {user?.name}！
-        </Text>
+        <VStack align="flex-start" spacing={2} flex="1">
+          <Text 
+            fontSize={{ base: "md", sm: "lg" }}
+            fontFamily={language === 'en' ? "forte" : "inherit"}
+            fontWeight={language === 'en' ? "normal" : "medium"}
+          >
+            {t('welcome')}, {user?.name}！
+          </Text>
+          
+          <Flex width="100%" align="center" justify="flex-start">
+            <IconButton
+              aria-label={isEditing ? "保存目标" : "编辑目标"}
+              icon={isEditing ? <CheckIcon /> : <EditIcon />}
+              size="sm"
+              variant="ghost"
+              colorScheme="brand"
+              onClick={() => {
+                console.log("编辑按钮被点击，当前编辑状态:", isEditing);
+                // 直接切换编辑状态
+                const newEditingState = !isEditing;
+                setIsEditing(newEditingState);
+                // 设置编辑类型为goal
+                setEditingType(newEditingState ? 'goal' : null);
+                
+                // 如果切换到编辑模式，尝试聚焦输入框
+                if (newEditingState && inputRef.current) {
+                  // 使用setTimeout确保DOM更新后再聚焦
+                  setTimeout(() => {
+                    if (inputRef.current) {
+                      inputRef.current.focus();
+                      console.log("输入框已聚焦");
+                    }
+                  }, 100);
+                }
+              }}
+              mr={2}
+            />
+          
+            {isEditing || !shortGoal ? (
+              <Flex 
+                align="center" 
+                width={{ base: "100%", sm: "auto" }}
+                position="relative"
+                zIndex={2}
+                flex="1"
+              >
+                <Menu 
+                  closeOnSelect={true}
+                  onOpen={() => {
+                    setIsEmojiMenuOpen(true);
+                  }}
+                  onClose={() => {
+                    setIsEmojiMenuOpen(false);
+                    if (isEditing) {
+                      // 调用focusInput函数而不是直接使用ref
+                      focusInput();
+                    }
+                  }}
+                >
+                  <MenuButton
+                    as={Button}
+                    aria-label="选择表情"
+                    mr={2}
+                    height="32px"
+                    minW="32px"
+                    p={0}
+                    borderRadius="full"
+                    fontSize="lg"
+                    bg="rgba(255, 255, 255, 0.2)"
+                    border="1px solid rgba(255, 255, 255, 0.15)"
+                    _hover={{
+                      bg: "rgba(255, 255, 255, 0.3)",
+                      borderColor: "brand.400",
+                    }}
+                    _active={{
+                      bg: "rgba(255, 255, 255, 0.4)",
+                    }}
+                    transition="all 0.2s ease"
+                    cursor="pointer"
+                  >
+                    {shortGoalEmoji}
+                  </MenuButton>
+                  <MenuList
+                    bg="rgba(255, 255, 255, 0.9)"
+                    backdropFilter="blur(10px)"
+                    border="1px solid rgba(255, 255, 255, 0.2)"
+                    borderRadius="md"
+                    boxShadow="lg"
+                    p={2}
+                    zIndex={10}
+                  >
+                    <SimpleGrid columns={5} spacing={2}>
+                      {commonEmojis.map((emojiItem: string) => (
+                        <Button
+                          key={emojiItem}
+                          onClick={() => {
+                            setShortGoalEmoji(emojiItem);
+                            // 选择表情后调用focusInput
+                            setTimeout(() => focusInput(), 10);
+                          }}
+                          fontSize="xl"
+                          height="36px"
+                          width="36px"
+                          p={0}
+                          bg={shortGoalEmoji === emojiItem ? "rgba(233, 175, 163, 0.2)" : "transparent"}
+                          _hover={{ bg: "rgba(233, 175, 163, 0.1)" }}
+                          borderRadius="md"
+                          cursor="pointer"
+                        >
+                          {emojiItem}
+                        </Button>
+                      ))}
+                    </SimpleGrid>
+                  </MenuList>
+                </Menu>
+                
+                {/* 回到Chakra Input但添加必要的样式属性 */}
+                <Editable
+                  defaultValue={shortGoal || ''}
+                  value={shortGoal}
+                  onChange={(value) => setShortGoal(value)}
+                  placeholder={language === 'zh' ? "分享一下这周的小目标吧" : "Share your goals for this week"}
+                  fontSize="14px"
+                  width="auto"
+                  maxWidth={{ base: "100%", sm: shortGoal ? `${Math.max(320, Math.min(600, shortGoal.length * 12))}px` : "320px" }}
+                  bg="rgba(255, 255, 255, 0.2)"
+                  px={4}
+                  py={1}
+                  borderRadius="full"
+                  border="1px solid rgba(255, 255, 255, 0.15)"
+                  _hover={{
+                    bg: "rgba(255, 255, 255, 0.3)",
+                    borderColor: "brand.400",
+                    boxShadow: "0 2px 6px rgba(233, 175, 163, 0.2)"
+                  }}
+                  onFocus={() => {
+                    setIsEditing(true);
+                    setIsInputFocused(true);
+                  }}
+                  onBlur={() => {
+                    setIsInputFocused(false);
+                    handleGoalEditComplete();
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                  cursor="text"
+                  zIndex={3}
+                >
+                  <EditablePreview 
+                    cursor="text"
+                    px={0}
+                    py={0}
+                    _hover={{ cursor: "text" }}
+                  />
+                  <EditableInput 
+                    ref={inputRef}
+                    px={0}
+                    py={0}
+                    cursor="text"
+                    _focus={{ cursor: "text" }}
+                    _hover={{ cursor: "text" }}
+                    maxLength={40}
+                  />
+                </Editable>
+              </Flex>
+            ) : (
+              <Box
+                flex="1"
+                onClick={() => {
+                  setIsEditing(true);
+                  // 调用focusInput函数而不是直接使用ref
+                  focusInput();
+                }}
+                borderRadius="full"
+                px={4}
+                py={1}
+                bg="rgba(255, 255, 255, 0.25)"
+                border="1px solid rgba(233, 175, 163, 0.2)"
+                boxShadow="0 2px 8px rgba(0,0,0,0.05)"
+                cursor="pointer"
+                transition="all 0.3s ease"
+                maxWidth={{ base: "100%", sm: shortGoal ? `${Math.max(320, Math.min(600, shortGoal.length * 12))}px` : "320px" }}
+                _hover={{
+                  bg: "rgba(255, 255, 255, 0.35)",
+                  transform: "translateY(-1px)",
+                  boxShadow: "0 4px 12px rgba(233, 175, 163, 0.2)"
+                }}
+                role="button"
+                tabIndex={0}
+                aria-label={language === 'zh' ? "编辑目标" : "Edit goal"}
+                // 添加键盘访问支持
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    setIsEditing(true);
+                    focusInput();
+                  }
+                }}
+              >
+                <Text
+                  fontFamily={language === 'en' ? "bodoni" : "inherit"}
+                  fontWeight="medium"
+                  fontSize="sm"
+                  letterSpacing="0.4px"
+                  color="brand.700"
+                  textShadow="0 1px 2px rgba(255,255,255,0.5)"
+                  display="flex"
+                  alignItems="center"
+                  flexWrap="nowrap"
+                  whiteSpace="nowrap"
+                  overflow="hidden"
+                  textOverflow="ellipsis"
+                >
+                  <Box as="span" flexShrink={0}>{shortGoalEmoji}</Box>{' '}
+                  <Box as="span" overflow="hidden" textOverflow="ellipsis">{shortGoal}</Box>
+                  <Box as="span" 
+                    fontSize="xs" 
+                    ml={2} 
+                    opacity={0.8} 
+                    fontStyle="italic"
+                    color="gray.600"
+                    flexShrink={0}
+                    whiteSpace="nowrap"
+                  >
+                    {typeof getFormattedDate === 'function' ? `on ${getFormattedDate()}` : ''}
+                  </Box>
+                </Text>
+              </Box>
+            )}
+          </Flex>
+        </VStack>
         <HStack spacing={3}>
           <Text 
             fontSize={{ base: "sm", sm: "md" }}
-            fontFamily={language === 'en' ? "'Leira', cursive" : "inherit"}
-            fontWeight={language === 'en' ? "bold" : "medium"}
+            fontFamily={language === 'en' ? "forte" : "inherit"}
+            fontWeight={language === 'en' ? "normal" : "medium"}
           >
             {t('consecutiveDays')}
           </Text>
@@ -1576,11 +2130,11 @@ function App() {
             borderRadius="full" 
             px={4} 
             py={1}
-            bg="rgba(234, 108, 60, 0.2)"
-            border="1px solid rgba(234, 108, 60, 0.3)"
+            bg="rgba(233, 175, 163, 0.2)"
+            border="1px solid rgba(233, 175, 163, 0.3)"
             boxShadow="0 2px 4px rgba(0,0,0,0.1)"
-            fontFamily={language === 'en' ? "'Leira', cursive" : "inherit"}
-            fontWeight={language === 'en' ? "bold" : "medium"}
+            fontFamily={language === 'en' ? "forte" : "inherit"}
+            fontWeight={language === 'en' ? "normal" : "medium"}
             textTransform="none"
           >
             {consecutiveDays} {t('days')}
@@ -1613,7 +2167,7 @@ function App() {
             mx={1}
             py={2}
             transition="all 0.2s"
-            fontFamily={language === 'en' ? "'Leira', cursive" : "inherit"}
+            fontFamily={language === 'en' ? "bodoni" : "inherit"}
           >
             {t('writeDiary')}
           </Tab>
@@ -1628,7 +2182,7 @@ function App() {
             mx={1}
             py={2}
             transition="all 0.2s"
-            fontFamily={language === 'en' ? "'Leira', cursive" : "inherit"}
+            fontFamily={language === 'en' ? "bodoni" : "inherit"}
           >
             {t('viewDiary')}
           </Tab>
@@ -1643,7 +2197,7 @@ function App() {
             mx={1}
             py={2}
             transition="all 0.2s"
-            fontFamily={language === 'en' ? "'Leira', cursive" : "inherit"}
+            fontFamily={language === 'en' ? "bodoni" : "inherit"}
           >
             {t('moodCalendar')}
           </Tab>
@@ -1666,15 +2220,18 @@ function App() {
               }}
             >
               <VStack spacing={4} align="stretch">
-              {isEditing && (
+              {isEditing && activeTab === 0 && editingType === 'diary' && (
                   <Box bg="rgba(254, 252, 191, 0.6)" p={3} borderRadius="md">
-                  <Text>{t('editingDiary')} {format(parseISO(editingDiary!.date), 'yyyy年MM月dd日')} {t('diaryDate')}</Text>
+                  <HStack spacing={3}>
+                    <CalendarIcon color="brand.500" />
+                    <Text>{t('editingDiary')} {editingDiary && editingDiary.date ? format(parseISO(editingDiary.date), 'yyyy年MM月dd日') : ''} {t('diaryDate')}</Text>
+                  </HStack>
                   <Button size="sm" mt={2} onClick={cancelEditing}>{t('cancelEdit')}</Button>
                 </Box>
               )}
               
               <FormControl>
-                <FormLabel>{t('date')}</FormLabel>
+                <FormLabel fontFamily={language === 'en' ? "bodoni" : "inherit"}>{t('date')}</FormLabel>
                 <Input 
                   type="date" 
                   value={selectedDate}
@@ -1684,16 +2241,22 @@ function App() {
               </FormControl>
 
               <FormControl>
-                <FormLabel>{t('mood')}</FormLabel>
+                <FormLabel fontFamily={language === 'en' ? "bodoni" : "inherit"}>{t('mood')}</FormLabel>
                 <HStack spacing={2} wrap="wrap">
                   {moodEmojis.map((emoji) => (
                     <Button 
                       key={emoji}
                       onClick={() => setSelectedMood(emoji)}
                       variant={selectedMood === emoji ? "solid" : "outline"}
-                      colorScheme={selectedMood === emoji ? "teal" : "gray"}
+                      bg={selectedMood === emoji ? getMoodColor(emoji) : "rgba(255, 255, 255, 0.3)"}
+                      color={selectedMood === emoji ? "white" : "gray.700"}
+                      borderColor={getMoodColor(emoji, 0.5)}
+                      _hover={{ 
+                        bg: selectedMood === emoji ? getMoodColor(emoji) : getMoodColor(emoji, 0.2),
+                        transform: "translateY(-2px)"
+                      }}
                       fontSize="20px"
-                      bg={selectedMood === emoji ? undefined : "rgba(255, 255, 255, 0.3)"}
+                      transition="all 0.2s ease"
                     >
                       {emoji}
                     </Button>
@@ -1702,7 +2265,7 @@ function App() {
               </FormControl>
 
               <FormControl>
-                <FormLabel>{t('content')} {t('tagTip')}</FormLabel>
+                <FormLabel fontFamily={language === 'en' ? "bodoni" : "inherit"}>{t('content')} {t('tagTip')}</FormLabel>
                 <Textarea 
                   placeholder={t('contentPlaceholder')}
                   size="lg" 
@@ -1719,7 +2282,7 @@ function App() {
 
               {/* 标签输入部分 */}
               <FormControl>
-                <FormLabel>{t('addTag')}</FormLabel>
+                <FormLabel fontFamily={language === 'en' ? "bodoni" : "inherit"}>{t('addTag')}</FormLabel>
                 <Flex>
                   <Input 
                     placeholder={t('inputTag')}
@@ -1763,7 +2326,7 @@ function App() {
               </FormControl>
 
               <FormControl>
-                <FormLabel>{t('addImage')}</FormLabel>
+                <FormLabel fontFamily={language === 'en' ? "bodoni" : "inherit"}>{t('addImage')}</FormLabel>
                 <Input
                   type="file"
                   accept="image/*"
@@ -1807,7 +2370,7 @@ function App() {
             >
             <VStack spacing={4} align="stretch">
               <Flex justify="space-between" align="center">
-                <Heading as="h2" size="md" fontFamily={language === 'zh' ? "cursive" : "leira"}>{t('myDiary')}</Heading>
+                <Heading as="h2" size="md" fontFamily={language === 'zh' ? "cursive" : "bodoni"}>{t('myDiary')}</Heading>
                 <HStack spacing={2}>
                   <Menu>
                       <MenuButton as={Button} rightIcon={<ChevronDownIcon />} size="sm" bg="rgba(255, 255, 255, 0.3)">
@@ -1839,10 +2402,11 @@ function App() {
                         key={diary.id} 
                         variant="glass" 
                         cursor="pointer" 
-                          onClick={() => openDiaryDetail(diary)}
+                        onClick={() => openDiaryDetail(diary)}
                         _hover={{ boxShadow: 'lg', transform: 'translateY(-4px)' }}
                         transition="all 0.3s ease"
                         bg="rgba(255, 255, 255, 0.3)"
+                        borderLeft={`3px solid ${getMoodColor(diary.mood)}`}
                       >
                       <CardHeader pb={2}>
                         <Flex justify="space-between" align="center">
@@ -1860,7 +2424,7 @@ function App() {
                         {diary.tags && diary.tags.length > 0 && (
                           <HStack mt={2} spacing={2} wrap="wrap">
                             {diary.tags.map(tag => (
-                                <Badge key={tag} colorScheme="brand" bg="rgba(234, 108, 60, 0.2)" color="brand.700">#{tag}</Badge>
+                                <Badge key={tag} colorScheme="brand" bg="rgba(233, 175, 163, 0.2)" color="brand.700">#{tag}</Badge>
                             ))}
                           </HStack>
                         )}
@@ -1883,7 +2447,7 @@ function App() {
               border="1px solid rgba(255, 255, 255, 0.2)"
             >
               <VStack spacing={4} align="stretch">
-                <Heading as="h2" size="md" fontFamily={language === 'zh' ? "cursive" : "leira"}>{t('moodCalendar')}</Heading>
+                <Heading as="h2" size="md" fontFamily={language === 'zh' ? "cursive" : "bodoni"}>{t('moodCalendar')}</Heading>
                 <Box>
                   {renderCalendar()}
                 </Box>
@@ -1908,10 +2472,16 @@ function App() {
         >
           {selectedDiary && (
             <>
-              <ModalHeader bg="rgba(255, 255, 255, 0.9)" borderTopRadius="xl">
+              <ModalHeader 
+                bg="rgba(255, 255, 255, 0.9)" 
+                borderTopRadius="xl"
+                borderLeft={selectedDiary && `4px solid ${getMoodColor(selectedDiary.mood)}`}
+              >
                 <HStack>
                   <Text fontSize="2xl">{selectedDiary.mood}</Text>
-                  <Text>{format(parseISO(selectedDiary.date), 'yyyy年MM月dd日')}</Text>
+                  <Text fontFamily={language === 'en' ? "inherit" : "inherit"}>
+                    {selectedDiary && selectedDiary.date ? format(parseISO(selectedDiary.date), 'yyyy年MM月dd日') : ''}
+                  </Text>
                 </HStack>
               </ModalHeader>
               <ModalCloseButton />
@@ -1920,17 +2490,52 @@ function App() {
                   <Text whiteSpace="pre-wrap">{selectedDiary.content}</Text>
                   
                   {selectedDiary.imageUrl && (
-                    <Image 
-                      src={selectedDiary.imageUrl} 
-                      alt="日记图片" 
-                      borderRadius="md"
-                    />
+                    <Box
+                      borderRadius="lg"
+                      overflow="hidden"
+                      boxShadow="0 4px 12px rgba(0, 0, 0, 0.08)"
+                      borderWidth="1px"
+                      borderColor="gray.100"
+                      bg="white"
+                      p="3"
+                      maxW="100%"
+                      mx="auto"
+                      position="relative"
+                    >
+                      <Image 
+                        src={selectedDiary.imageUrl} 
+                        alt="日记图片" 
+                        borderRadius="md"
+                        objectFit="cover"
+                        width="100%"
+                        maxH="400px"
+                        fallback={<Center h="300px" bg="gray.50"><Spinner /></Center>}
+                      />
+                      <Box 
+                        position="absolute" 
+                        bottom="6px" 
+                        right="6px"
+                        bg="white"
+                        p="1"
+                        borderRadius="full"
+                        opacity="0.8"
+                        _hover={{ opacity: "1" }}
+                      >
+                        <IconButton
+                          aria-label="查看原图"
+                          icon={<ExternalLinkIcon />}
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => window.open(selectedDiary.imageUrl, '_blank')}
+                        />
+                      </Box>
+                    </Box>
                   )}
                   
                   {selectedDiary.tags && selectedDiary.tags.length > 0 && (
                     <HStack mt={2} spacing={2} wrap="wrap">
                       {selectedDiary.tags.map(tag => (
-                        <Badge key={tag} colorScheme="brand" bg="rgba(234, 108, 60, 0.1)" color="brand.700">#{tag}</Badge>
+                        <Badge key={tag} colorScheme="brand" bg="rgba(233, 175, 163, 0.1)" color="brand.700">#{tag}</Badge>
                       ))}
                     </HStack>
                   )}
@@ -1939,7 +2544,7 @@ function App() {
                   
                   <Box>
                     <Flex justify="space-between" align="center" mb={2}>
-                      <Heading size="sm">{t('chatAbout')}</Heading>
+                      <Heading size="sm" fontFamily={language === 'en' ? "bodoni" : "inherit"}>{t('chatAbout')}</Heading>
                       <Button 
                         size="sm" 
                         leftIcon={<StarIcon />} 
@@ -2009,11 +2614,11 @@ function App() {
           border="1px solid rgba(255, 255, 255, 0.3)"
           backdropFilter="blur(10px)"
         >
-          <ModalHeader fontWeight="bold" color="gray.700">{t('settings')}</ModalHeader>
+          <ModalHeader fontWeight="bold" color="gray.700" fontFamily={language === 'en' ? "bodoni" : "inherit"}>{t('settings')}</ModalHeader>
           <ModalCloseButton />
           <ModalBody>
             <VStack spacing={4} align="stretch">
-              <Heading size="sm" color="gray.700">{t('diaryReminder')}</Heading>
+              <Heading size="sm" color="gray.700" fontFamily={language === 'en' ? "bodoni" : "inherit"}>{t('diaryReminder')}</Heading>
               
               <FormControl display="flex" alignItems="center">
                 <FormLabel htmlFor="reminder-toggle" mb="0" color="gray.700" fontWeight="medium">
@@ -2038,7 +2643,7 @@ function App() {
 
               <Divider />
               
-              <Heading size="sm">{t('accountInfo')}</Heading>
+              <Heading size="sm" fontFamily={language === 'en' ? "bodoni" : "inherit"}>{t('accountInfo')}</Heading>
               
               <FormControl>
                 <FormLabel>{t('username')}</FormLabel>
@@ -2087,6 +2692,7 @@ function App() {
       <WallpaperBackground enablePullToRefresh={isLoggedIn}>
         {isLoggedIn ? renderMainApp() : renderAuthForm()}
       </WallpaperBackground>
+      <CustomStyles />
     </ChakraProvider>
   );
 }
