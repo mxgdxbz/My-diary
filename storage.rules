@@ -5,8 +5,20 @@ rules_version = '2';
 //    /databases/(default)/documents/users/$(request.auth.uid)).data.isAdmin;
 service firebase.storage {
   match /b/{bucket}/o {
+    // 默认规则 - 拒绝所有访问
     match /{allPaths=**} {
       allow read, write: if false;
+    }
+    
+    // 用户日记图片规则 - 允许用户访问自己的图片
+    match /diary-images/{userId}/{fileName} {
+      // 允许认证用户读取自己的图片
+      allow read: if request.auth != null && request.auth.uid == userId;
+      
+      // 允许认证用户上传自己的图片
+      allow write: if request.auth != null && request.auth.uid == userId
+                    && request.resource.size < 10 * 1024 * 1024  // 限制文件大小为10MB
+                    && request.resource.contentType.matches('image/.*'); // 仅限图片文件
     }
   }
 }

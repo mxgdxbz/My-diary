@@ -5,5 +5,22 @@ service cloud.firestore {
     match /{document=**} {
       allow read, write: if false;
     }
+    
+    // 用户数据规则：用户只能读写自己的数据
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // 日记规则：改进版本
+    match /diaries/{diaryId} {
+      // 允许读取自己的所有日记
+      allow read: if request.auth != null && request.auth.uid == resource.data.userId;
+      // 允许写入已有日记
+      allow write: if request.auth != null && request.auth.uid == resource.data.userId;
+      // 允许创建新日记
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.userId;
+      // 允许列出自己的所有日记
+      allow list: if request.auth != null;
+    }
   }
 }

@@ -1,0 +1,5 @@
+firebase-functions==0.4.2
+firebase-admin>=6.2.0
+google-cloud-logging
+openai
+python-dotenv>=1.0.0
