@@ -3,7 +3,7 @@ import {
   Box, ChakraProvider, VStack, Heading, 
   Input, Textarea, Button, HStack, Image, 
   useToast, FormControl, FormLabel, Flex,
-  Tabs, TabList, TabPanels, Tab, TabPanel,
+
   Text, Divider, Card, CardBody, CardHeader,
   SimpleGrid, Badge, Modal, ModalOverlay,
   ModalContent, ModalHeader, ModalBody,
@@ -17,14 +17,20 @@ import {
 import { format, parseISO, differenceInDays, startOfMonth, endOfMonth, addDays, isSameDay, isSameMonth } from 'date-fns';
 import { ChevronDownIcon, CalendarIcon, SettingsIcon, StarIcon, AddIcon, EditIcon, ExternalLinkIcon, CheckIcon } from '@chakra-ui/icons';
 import { db, auth, storage } from './FirebaseConfig';
-import { collection, addDoc, getDocs, query, where, updateDoc, doc, setDoc, getDoc } from 'firebase/firestore';
+import { collection, addDoc, getDocs, query, where, updateDoc, doc, setDoc, getDoc, orderBy, limit } from 'firebase/firestore';
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile } from 'firebase/auth';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { FaShare, FaPen, FaEye, FaCalendarAlt } from 'react-icons/fa';
+import { shareCalendar } from './utils/ShareCalendar';
 
 // 引入动态壁纸相关组件
 import WallpaperBackground from './components/WallpaperBackground';
 // 导入心情颜色映射
 import { moodColors } from './utils/LocalWallpapers';
+// 导入自定义布局样式
+import '../DiaryLayout.css';
+// 导入登录页面组件
+import LoginPage from './components/LoginPage';
 
 // 添加自定义字体
 const CustomStyles = () => (
@@ -104,7 +110,7 @@ const translations = {
     editingDiary: '您正在编辑',
     cancelEdit: '取消编辑',
     diaryDate: '',
-    tagTip: '(可使用 #标签 添加标签)',
+    tagTip: '',
     contentPlaceholder: '写下今天的心情和故事... 可以使用 #工作 #生活 等标签',
     previousMonth: '上个月',
     nextMonth: '下个月',
@@ -130,7 +136,8 @@ const translations = {
     thu: '四',
     fri: '五',
     sat: '六',
-    goalPlaceholder: '分享一下这周的小目标吧'
+    goalPlaceholder: '分享一下这周的小目标吧',
+    share: '分享'
   },
   en: {
     myDiary: 'My Diary',
@@ -170,7 +177,7 @@ const translations = {
     editingDiary: 'You are editing',
     cancelEdit: 'Cancel Edit',
     diaryDate: 'diary',
-    tagTip: '(use #tag to add tags)',
+    tagTip: '',
     contentPlaceholder: 'Write about your day... You can use tags like #work #life',
     previousMonth: 'Previous',
     nextMonth: 'Next',
@@ -196,7 +203,8 @@ const translations = {
     thu: 'Thu',
     fri: 'Fri',
     sat: 'Sat',
-    goalPlaceholder: 'Share your goals for this week'
+    goalPlaceholder: 'Share your goals for this week',
+    share: 'Share'
   }
 };
 
@@ -507,6 +515,102 @@ const saveDiaryToFirestore = async (diary: DiaryEntry): Promise<void> => {
   }
 };
 
+// Custom bottom tab bar component
+const BottomTabBar = ({ 
+  activeTab, 
+  setActiveTab, 
+  language, 
+  t 
+}: { 
+  activeTab: number, 
+  setActiveTab: (index: number) => void, 
+  language: Language,
+  t: (key: keyof typeof translations.zh) => string
+}) => {
+  const tabItems = [
+    { icon: FaPen, label: t('writeDiary') },
+    { icon: FaEye, label: t('viewDiary') },
+    { icon: FaCalendarAlt, label: t('moodCalendar') }
+  ];
+
+  return (
+    <Box
+      position="sticky"
+      bottom="26px"
+      left={0}
+      right={0}
+      zIndex={20}
+      padding="0"
+      width="100%"
+      display="flex"
+      justifyContent="center"
+      background="transparent"
+      pointerEvents="none"
+    >
+      <Flex
+        justify="space-around"
+        align="center"
+        bg="rgba(255, 255, 255, 0.15)"
+        backdropFilter="blur(10px)"
+        borderRadius="full"
+        boxShadow="0 4px 20px rgba(0, 0, 0, 0.1)"
+        border="1px solid rgba(255, 255, 255, 0.3)"
+        p={2}
+        mb={4}
+        transition="all 0.3s ease"
+        width="90%"
+        maxWidth="500px"
+        pointerEvents="auto"
+      >
+        {tabItems.map((item, index) => (
+          <Box
+            key={index}
+            onClick={() => setActiveTab(index)}
+            py={2}
+            px={4}
+            borderRadius="full"
+            bg={activeTab === index ? "rgba(255, 255, 255, 0.3)" : "transparent"}
+            cursor="pointer"
+            position="relative"
+            transform={activeTab === index ? "translateY(-2px)" : "translateY(0)"}
+            transition="all 0.3s ease"
+            _hover={{
+              bg: "rgba(255, 255, 255, 0.2)",
+            }}
+          >
+            <Flex 
+              direction="column" 
+              align="center" 
+              justify="center"
+              transition="all 0.3s ease"
+            >
+              <Icon 
+                as={item.icon} 
+                fontSize={activeTab === index ? "18px" : "20px"}
+                color={activeTab === index ? "brand.500" : "gray.600"}
+                mb={activeTab === index ? 1 : 0}
+                transition="all 0.3s ease"
+              />
+              
+              {activeTab === index && (
+                <Text 
+                  fontSize="xs" 
+                  fontWeight="medium" 
+                  color="brand.500"
+                  fontFamily={language === 'en' ? "bodoni" : "inherit"}
+                  transition="all 0.3s ease"
+                >
+                  {item.label}
+                </Text>
+              )}
+            </Flex>
+          </Box>
+        ))}
+      </Flex>
+    </Box>
+  );
+};
+
 function App() {
   const { colorMode } = useColorMode();
   // 添加语言选择状态
@@ -770,12 +874,40 @@ function App() {
     }
   }, [diaries, user]);
 
-  // 修改登录函数以使用基于邮箱的ID
+  // 获取本地时间
+  const getFormattedDate = () => {
+    const now = new Date();
+    return format(now, 'MM/dd');
+  };
+
+  // 处理登录成功的逻辑 - 整合后的函数
+  const handleLoginSuccess = async (userId: string) => {
+    setIsLoggedIn(true);
+    await loadDiaries(userId);
+    
+    // 如果有其他需要在登录成功后初始化的内容，可以在这里添加
+  };
+
+  // 加载日记函数
+  const loadDiaries = async (userId: string) => {
+    try {
+      const loadedDiaries = await loadDiariesFromFirestore(userId);
+      setDiaries(loadedDiaries);
+    } catch (error) {
+      console.error("加载日记失败:", error);
+    }
+  };
+
+  // 处理登录的处理函数
   const handleLogin = async () => {
     if (loginForm.username && loginForm.password) {
       try {
-        await signInWithEmailAndPassword(auth, loginForm.username, loginForm.password);
-        // Firebase Auth状态变化监听器会自动处理剩余操作
+        const userCredential = await signInWithEmailAndPassword(auth, loginForm.username, loginForm.password);
+        
+        // 使用整合后的登录成功处理函数
+        if (userCredential.user) {
+          await handleLoginSuccess(userCredential.user.uid);
+        }
         
         toast({
           title: '登录成功',
@@ -795,7 +927,7 @@ function App() {
     }
   };
 
-  // 修改用户注册函数
+  // 处理注册的处理函数
   const handleRegister = async () => {
     if (!registerForm.username || !registerForm.email || !registerForm.password) {
       toast({
@@ -958,7 +1090,129 @@ function App() {
     setAiAnalysis('');
     setIsLiked(false);
     setAnalysisId('');
+    
+    // 检查是否有已点赞的分析，如果有则加载
+    loadLikedAnalysis(diary.id);
+    
     onDetailOpen();
+  };
+
+  // 添加处理Firestore索引错误的辅助函数
+  const handleFirestoreIndexError = (error: any): boolean => {
+    // 检查是否是缺少索引的错误
+    if (error && error.message && error.message.includes('index')) {
+      console.error('Firestore索引错误:', error.message);
+      
+      // 从错误消息中提取创建索引的URL（如果有）
+      const urlMatch = error.message.match(/https:\/\/console\.firebase\.google\.com[^\s"]*/);
+      const indexUrl = urlMatch ? urlMatch[0] : null;
+      
+      // 显示带有索引创建链接的错误提示
+      toast({
+        title: 'Firestore索引需要创建',
+        description: indexUrl 
+          ? '点击此消息创建索引，然后重试操作。' 
+          : '请联系管理员创建必要的Firestore索引。',
+        status: 'error',
+        duration: 10000,
+        isClosable: true,
+        onCloseComplete: () => {
+          if (indexUrl) {
+            window.open(indexUrl, '_blank');
+          }
+        }
+      });
+      return true;
+    }
+    return false;
+  };
+
+  // 添加加载已点赞分析的函数
+  const loadLikedAnalysis = async (diaryId: string) => {
+    try {
+      if (!user || !auth.currentUser) return;
+      
+      // 首先尝试从用户特定的集合中查询
+      let querySnapshot;
+      
+      try {
+        // 查询用户特定路径
+        const userLikesRef = collection(db, `users/${auth.currentUser.uid}/likes`);
+        const userQuery = query(
+          userLikesRef,
+          where('diaryId', '==', diaryId),
+          orderBy('timestamp', 'desc'),
+          limit(1)
+        );
+        
+        querySnapshot = await getDocs(userQuery);
+        console.log('从用户特定路径查询点赞记录');
+      } catch (pathError) {
+        console.log('从用户路径查询失败，尝试公共集合:', pathError);
+        
+        // 检查是否是索引错误
+        if (handleFirestoreIndexError(pathError)) {
+          return; // 如果是索引错误，直接返回
+        }
+        
+        // 如果用户特定路径失败，尝试公共集合
+        const likesRef = collection(db, 'likes');
+        const publicQuery = query(
+          likesRef,
+          where('userId', '==', auth.currentUser.uid),
+          where('diaryId', '==', diaryId),
+          orderBy('timestamp', 'desc'),
+          limit(1)
+        );
+        
+        try {
+          querySnapshot = await getDocs(publicQuery);
+          console.log('从公共路径查询点赞记录');
+        } catch (publicError) {
+          // 检查是否是索引错误
+          if (handleFirestoreIndexError(publicError)) {
+            return; // 如果是索引错误，直接返回
+          }
+          throw publicError; // 否则，继续抛出错误
+        }
+      }
+      
+      if (!querySnapshot.empty) {
+        // 找到了点赞记录
+        const likeDoc = querySnapshot.docs[0].data();
+        const analysisId = likeDoc.analysisId;
+        
+        // 查询点赞记录对应的分析内容
+        if (likeDoc.analysis) {
+          // 如果点赞记录中直接包含分析内容
+          setAiAnalysis(likeDoc.analysis);
+          setAnalysisId(analysisId);
+          setIsLiked(true);
+          console.log('从点赞记录中加载分析成功');
+          
+          // 显示提示
+          toast({
+            title: '已加载您之前收藏的分析',
+            status: 'info',
+            duration: 2000,
+            isClosable: true,
+          });
+        } else {
+          console.log('找到点赞记录，但需要实现从其他集合加载分析内容的逻辑');
+          // 这里可能需要从另一个集合中查询分析内容
+          // 目前先显示一个提示让用户知道曾经点过赞
+          toast({
+            title: '您曾经对这篇日记的分析点过赞',
+            status: 'info',
+            duration: 3000,
+            isClosable: true,
+          });
+        }
+      }
+    } catch (error) {
+      console.error('加载点赞分析失败:', error);
+      // 不需要向用户显示此错误，因为这是静默加载
+    }
   };
 
   // 更新生成AI分析函数，增加错误处理和日志记录
@@ -1036,14 +1290,26 @@ function App() {
       
       setIsAnalyzing(false);
       
-      // 显示分析成功的提示
-      toast({
-        title: 'AI分析完成',
-        description: '基于人工智能的分析已准备就绪',
-        status: 'success',
-        duration: 3000,
-        isClosable: true,
-      });
+      // 检查是否使用了基本分析（非AI分析）
+      if (data.message) {
+        // 显示基本分析提示
+        toast({
+          title: '使用了基本分析',
+          description: data.message,
+          status: 'info',
+          duration: 4000,
+          isClosable: true,
+        });
+      } else {
+        // 显示分析成功的提示
+        toast({
+          title: 'AI分析完成',
+          description: '基于人工智能的分析已准备就绪，点击"赞"保存分析',
+          status: 'success',
+          duration: 3000,
+          isClosable: true,
+        });
+      }
     } catch (error) {
       console.error('AI分析请求失败:', error);
       setIsAnalyzing(false);
@@ -1057,36 +1323,79 @@ function App() {
     }
   };
 
-  // 添加保存点赞到数据库的函数
+  // 核心保存函数
   const saveLikeToDatabase = async (analysisId: string) => {
-    try {
-      if (!user || !auth.currentUser) return;
-      
-      // 在Firestore中保存点赞记录
-      await addDoc(collection(db, 'likes'), {
-        analysisId,
-        userId: auth.currentUser.uid,
-        diaryId: selectedDiary?.id,
-        timestamp: new Date().toISOString()
-      });
-      
-      console.log('点赞已保存到数据库');
-      
-      // 可选：显示点赞成功的提示
+    if (!user || !auth.currentUser || !selectedDiary) {
+      throw new Error('Missing required data');
+    }
+
+    const likeData = {
+      analysisId,
+      userId: auth.currentUser.uid,
+      diaryId: selectedDiary.id,
+      analysis: aiAnalysis,
+      timestamp: new Date().toISOString()
+    };
+
+    const userLikesRef = collection(db, `users/${auth.currentUser.uid}/likes`);
+    await addDoc(userLikesRef, likeData);
+  };
+
+  // 用户交互处理函数
+  const handleLike = async () => {
+    if (isLiked) {
       toast({
-        title: '谢谢您的反馈',
-        status: 'success',
+        title: '点赞已保存',
+        description: '感谢您的反馈',
+        status: 'info',
         duration: 2000,
+        isClosable: true,
+      });
+      return;
+    }
+
+    if (!selectedDiary || !aiAnalysis) {
+      toast({
+        title: '请先启用聊一下',
+        description: '生成AI分析后才能点赞',
+        status: 'warning',
+        duration: 3000,
+        isClosable: true,
+      });
+      return;
+    }
+
+    try {
+      const finalAnalysisId = analysisId || `analysis_${selectedDiary.id}_${Date.now()}`;
+      await saveLikeToDatabase(finalAnalysisId);
+      setIsLiked(true);
+      
+      toast({
+        title: '已保存分析结果',
+        status: 'success',
+        duration: 3000,
         isClosable: true,
       });
     } catch (error) {
-      console.error('保存点赞失败:', error);
-      toast({
-        title: '反馈保存失败',
-        status: 'error',
-        duration: 2000,
-        isClosable: true,
-      });
+      console.error('点赞处理失败:', error);
+      
+      if (error instanceof Error && error.message.includes('permission-denied')) {
+        toast({
+          title: '权限错误',
+          description: '请检查 index-ai.js 中的 Firestore 规则设置',
+          status: 'error',
+          duration: 4000,
+          isClosable: true,
+        });
+      } else {
+        toast({
+          title: '保存失败',
+          description: error instanceof Error ? error.message : '未知错误',
+          status: 'error',
+          duration: 4000,
+          isClosable: true,
+        });
+      }
     }
   };
 
@@ -1204,6 +1513,17 @@ function App() {
       return;
     }
     
+    // 添加照片验证 - 如果没有照片则提示用户并终止保存
+    if (!imagePreview && !_image) {
+      toast({
+        title: '上传照片才能保存哦',
+        status: 'warning',
+        duration: 3000,
+        isClosable: true,
+      });
+      return;
+    }
+    
     if (user && auth.currentUser) {
       // 获取用户ID
       const userId = auth.currentUser.uid;
@@ -1314,22 +1634,21 @@ function App() {
     }
   };
 
-  const handleLike = async () => {
-    setIsLiked(!isLiked);
-    
-    // 如果点赞被取消，则不需要保存到数据库
-    if (isLiked) return;
-    
-    // 确保有分析结果和ID
-    if (selectedDiary && aiAnalysis && analysisId) {
-      await saveLikeToDatabase(analysisId);
-    } else if (selectedDiary && aiAnalysis) {
-      // 如果分析结果没有ID（可能是老数据），使用替代标识
-      const fallbackId = `analysis_${selectedDiary.id}_${Date.now()}`;
-      await saveLikeToDatabase(fallbackId);
-    }
+  // Function to handle calendar sharing
+  const handleShareCalendar = async () => {
+    // 调用独立的分享功能模块
+    await shareCalendar(currentMonth, language, diaries, getMoodColor, toast);
   };
-
+  
+  const getDiaryForDate = (date: Date) => {
+    return diaries.find((diary) => isSameDay(parseISO(diary.date), date)) || null;
+  };
+  
+  // 前进到下个月
+  const nextMonth = () => {
+    setCurrentMonth(addDays(endOfMonth(currentMonth), 1));
+  };
+  
   // 获取日历显示所需的日期数组
   const getDaysInMonth = (date: Date) => {
     const start = startOfMonth(date);
@@ -1360,16 +1679,6 @@ function App() {
     return days;
   };
   
-  // 找出某一天的日记条目
-  const getDiaryForDate = (date: Date) => {
-    return diaries.find((diary) => isSameDay(parseISO(diary.date), date)) || null;
-  };
-  
-  // 前进到下个月
-  const nextMonth = () => {
-    setCurrentMonth(addDays(endOfMonth(currentMonth), 1));
-  };
-  
   // 后退到上个月
   const prevMonth = () => {
     setCurrentMonth(addDays(startOfMonth(currentMonth), -1));
@@ -1394,80 +1703,91 @@ function App() {
         boxShadow="md" 
         mb={4}
         bg="rgba(255, 255, 255, 0.2)"
-        overflowX={{ base: "auto", md: "visible" }}
+        overflowX={{ base: "visible", md: "visible" }}
       >
-        {/* 月份导航栏 - 在小屏幕上改为垂直布局 */}
+        {/* 月份导航栏 - 优化移动端显示 */}
         <Flex 
-          direction={{ base: "column", sm: "row" }} 
-          justify="space-between" 
-          align={{ base: "center", sm: "center" }} 
-          mb={4}
+          direction="column"
+          justify="center" 
+          align="center" 
+          mb={2}
           gap={2}
         >
-          <Button 
-            size="sm" 
-            onClick={prevMonth} 
-            colorScheme="brand" 
-            variant="outline" 
-            bg="rgba(255, 255, 255, 0.2)"
-            width={{ base: "full", sm: "auto" }}
-          >
-            {t('previousMonth')}
-          </Button>
-          
           <Heading 
-            size="md" 
+            size={{ base: "sm", sm: "md" }}
             color="brand.600"
             textAlign="center"
             fontFamily={language === 'zh' ? "inherit" : "bodoni"}
+            mb={1}
           >
             {format(currentMonth, 'yyyy年MM月')}
           </Heading>
           
-          <HStack spacing={2} width={{ base: "full", sm: "auto" }}>
+          {/* 将月份导航按钮放在年月标题下方并排显示 */}
+          <Flex 
+            width="100%" 
+            justify="center" 
+            gap={2}
+          >
             <Button 
-              size="sm" 
+              size={{ base: "xs", sm: "sm" }}
+              onClick={prevMonth} 
+              colorScheme="brand" 
+              variant="outline" 
+              bg="rgba(255, 255, 255, 0.2)"
+              flex="1"
+              maxW="140px"
+            >
+              {t('previousMonth')}
+            </Button>
+            
+            <Button 
+              size={{ base: "xs", sm: "sm" }}
               onClick={nextMonth} 
               colorScheme="brand" 
               variant="outline" 
               bg="rgba(255, 255, 255, 0.2)"
-              flex={{ base: 1, sm: "auto" }}
+              flex="1"
+              maxW="140px"
             >
               {t('nextMonth')}
             </Button>
+            
             <Button 
-              size="sm" 
+              size={{ base: "xs", sm: "sm" }}
               onClick={resetToCurrentMonth} 
               colorScheme="brand" 
               bg={`${getMoodColor('😊', 0.2)}`}
               color="brand.700"
               border={`1px solid ${getMoodColor('😊', 0.4)}`}
-              flex={{ base: 1, sm: "auto" }}
+              flex="1"
+              maxW="120px"
             >
               {t('today')}
             </Button>
-          </HStack>
+          </Flex>
         </Flex>
         
-        {/* 星期标题行 - 调整文字大小和内边距 */}
-        <Box minW={{ base: "480px", md: "auto" }}>
-          <Grid templateColumns="repeat(7, 1fr)" gap={1} mb={2}>
+        {/* 星期标题行 - 缩小文字大小和内边距以适应移动端 */}
+        <Box minW={{ base: "100%", md: "auto" }}>
+          <Grid templateColumns="repeat(7, 1fr)" gap={1} mb={1}>
             {weekdays.map((day, index) => (
               <GridItem 
                 key={index} 
                 textAlign="center" 
                 fontWeight="bold" 
-                p={{ base: 1, sm: 2 }} 
+                p={{ base: 0.5, sm: 2 }} 
                 color="brand.600"
+                fontSize={{ base: "xs", sm: "sm" }}
               >
                 {day}
               </GridItem>
             ))}
           </Grid>
           
-          {/* 日期网格 - 调整内容显示和内边距 */}
+          {/* 日期网格 - 缩小内容显示和内边距以适应移动端 */}
           <Grid templateColumns="repeat(7, 1fr)" gap={1}>
-            {days.map((day, index) => {
+            {days.map((day: Date, index: number) => {
               const diary = getDiaryForDate(day);
               const isCurrentMonth = isSameMonth(day, currentMonth);
               const isToday = isSameDay(day, today);
@@ -1476,7 +1796,7 @@ function App() {
                 <GridItem 
                   key={index} 
                   textAlign="center" 
-                  p={{ base: 1, sm: 2 }}
+                  p={{ base: 0.5, sm: 2 }}
                   borderRadius="md"
                   bg={isToday 
                     ? "rgba(233, 175, 163, 0.3)" 
@@ -1495,14 +1815,14 @@ function App() {
                   position="relative"
                   transition="all 0.2s"
                   boxShadow={diary ? `0 2px 8px ${getMoodColor(diary.mood, 0.25)}` : "none"}
-                  minH={{ base: "40px", sm: "50px" }}
+                  minH={{ base: "30px", sm: "50px" }}
                   display="flex"
                   alignItems="center"
                   justifyContent="center"
                 >
                   <VStack spacing={{ base: 0, sm: 1 }} w="100%">
                     <Text 
-                      fontSize={{ base: "xs", sm: "sm" }}
+                      fontSize={{ base: "2xs", sm: "sm" }}
                       fontWeight={isToday ? "bold" : "normal"}
                       color={isToday ? "brand.700" : isCurrentMonth ? "neutrals.900" : "neutrals.800"}
                     >
@@ -1510,7 +1830,7 @@ function App() {
                     </Text>
                     {diary && (
                       <Text 
-                        fontSize={{ base: "md", sm: "xl" }} 
+                        fontSize={{ base: "sm", sm: "xl" }} 
                         title="点击查看日记"
                         lineHeight="1"
                       >
@@ -1524,7 +1844,7 @@ function App() {
           </Grid>
         </Box>
         
-        <Text fontSize="xs" mt={2} textAlign="center" color="neutrals.800">
+        <Text fontSize={{ base: "2xs", sm: "xs" }} mt={2} textAlign="center" color="neutrals.800">
           {t('calendarTip')}
         </Text>
       </Box>
@@ -1642,175 +1962,9 @@ function App() {
     return () => observer.disconnect();
   }, []);
   
-  // 格式化当前日期为简短格式
-  const getFormattedDate = () => {
-    const now = new Date();
-    return format(now, 'MM/dd');
-  };
-
-  // 渲染认证表单
-  const renderAuthForm = () => (
-    <Box
-      width="100%"
-      height="100vh"
-      display="flex"
-      alignItems="center"
-      justifyContent="center"
-    >
-      <Box
-        width="90%"
-        maxWidth="450px"
-        p={8}
-        borderRadius="xl"
-        bg="rgba(255, 255, 255, 0.2)"
-        boxShadow="xl"
-        border="1px solid rgba(255, 255, 255, 0.3)"
-      >
-        <VStack spacing={6} align="stretch">
-      <Center>
-        <Heading 
-          as="h1" 
-          size="xl" 
-          textAlign="center" 
-          fontFamily={language === 'zh' ? "'Comic Sans MS', cursive" : "forte"} 
-          color="brand.500"
-        >
-          {t('myDiary')}
-        </Heading>
-      </Center>
-          <Text textAlign="center" color="neutrals.800">{t('recordLife')}</Text>
-          
-          {/* 添加语言切换按钮 */}
-          <Center>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={toggleLanguage}
-              color="brand.500"
-              _hover={{ color: "brand.600" }}
-              transition="all 0.3s ease"
-              fontWeight="medium"
-            >
-              {language === 'zh' ? 'Switch to English' : '切换到中文'}
-            </Button>
-          </Center>
-      
-      <Tabs variant="soft-rounded" colorScheme="brand" index={isRegistering ? 1 : 0}>
-        <TabList mb="1em">
-          <Tab width="50%" onClick={() => setIsRegistering(false)}>{t('login')}</Tab>
-          <Tab width="50%" onClick={() => setIsRegistering(true)}>{t('register')}</Tab>
-        </TabList>
-        <TabPanels>
-          {/* 登录表单 */}
-          <TabPanel>
-            <VStack spacing={4}>
-              <FormControl>
-                <FormLabel>{t('email')}</FormLabel>
-                <Input 
-                  type="email"
-                  placeholder={t('emailPlaceholder')} 
-                  value={loginForm.username}
-                  onChange={(e) => setLoginForm({...loginForm, username: e.target.value})}
-                  bg="rgba(255, 255, 255, 0.3)"
-                  border="1px solid rgba(255, 255, 255, 0.2)"
-                  _hover={{ borderColor: "brand.500" }}
-                  _focus={{ borderColor: "brand.500", boxShadow: "0 0 0 1px #EA6C3C" }}
-                />
-              </FormControl>
-              
-              <FormControl>
-                <FormLabel>{t('password')}</FormLabel>
-                <Input 
-                  type="password" 
-                  placeholder={t('passwordPlaceholder')} 
-                  value={loginForm.password}
-                  onChange={(e) => setLoginForm({...loginForm, password: e.target.value})}
-                  bg="rgba(255, 255, 255, 0.3)"
-                  border="1px solid rgba(255, 255, 255, 0.2)"
-                  _hover={{ borderColor: "brand.500" }}
-                  _focus={{ borderColor: "brand.500", boxShadow: "0 0 0 1px #EA6C3C" }}
-                />
-              </FormControl>
-              
-              <Button colorScheme="teal" width="100%" onClick={handleLogin} mt={2}>
-                {t('login')}
-              </Button>
-            </VStack>
-          </TabPanel>
-          
-          {/* 注册表单 */}
-          <TabPanel>
-            <VStack spacing={4}>
-              <FormControl isRequired>
-                <FormLabel>{t('username')}</FormLabel>
-                <Input 
-                  placeholder={t('usernamePlaceholder')} 
-                  value={registerForm.username}
-                  onChange={(e) => setRegisterForm({...registerForm, username: e.target.value})}
-                  bg="rgba(255, 255, 255, 0.3)"
-                  border="1px solid rgba(255, 255, 255, 0.2)"
-                  _hover={{ borderColor: "brand.500" }}
-                  _focus={{ borderColor: "brand.500", boxShadow: "0 0 0 1px #EA6C3C" }}
-                />
-              </FormControl>
-              
-              <FormControl isRequired>
-                <FormLabel>{t('email')}</FormLabel>
-                <Input 
-                  type="email" 
-                  placeholder={t('emailInputPlaceholder')} 
-                  value={registerForm.email}
-                  onChange={(e) => setRegisterForm({...registerForm, email: e.target.value})}
-                  bg="rgba(255, 255, 255, 0.3)"
-                  border="1px solid rgba(255, 255, 255, 0.2)"
-                  _hover={{ borderColor: "brand.500" }}
-                  _focus={{ borderColor: "brand.500", boxShadow: "0 0 0 1px #EA6C3C" }}
-                />
-              </FormControl>
-              
-              <FormControl isRequired>
-                <FormLabel>{t('password')}</FormLabel>
-                <Input 
-                  type="password" 
-                  placeholder={t('passwordInputPlaceholder')} 
-                  value={registerForm.password}
-                  onChange={(e) => setRegisterForm({...registerForm, password: e.target.value})}
-                  bg="rgba(255, 255, 255, 0.3)"
-                  border="1px solid rgba(255, 255, 255, 0.2)"
-                  _hover={{ borderColor: "brand.500" }}
-                  _focus={{ borderColor: "brand.500", boxShadow: "0 0 0 1px #EA6C3C" }}
-                />
-              </FormControl>
-              
-              <FormControl isRequired>
-                <FormLabel>{t('confirmPassword')}</FormLabel>
-                <Input 
-                  type="password" 
-                  placeholder={t('confirmPasswordPlaceholder')} 
-                  value={registerForm.confirmPassword}
-                  onChange={(e) => setRegisterForm({...registerForm, confirmPassword: e.target.value})}
-                  bg="rgba(255, 255, 255, 0.3)"
-                  border="1px solid rgba(255, 255, 255, 0.2)"
-                  _hover={{ borderColor: "brand.500" }}
-                  _focus={{ borderColor: "brand.500", boxShadow: "0 0 0 1px #EA6C3C" }}
-                />
-              </FormControl>
-              
-              <Button colorScheme="teal" width="100%" onClick={handleRegister} mt={2}>
-                {t('register')}
-              </Button>
-            </VStack>
-          </TabPanel>
-        </TabPanels>
-      </Tabs>
-    </VStack>
-      </Box>
-    </Box>
-  );
-
   // 渲染主应用
   const renderMainApp = () => (
-    <Box minH="100vh" p={4}>
+    <Box minH="100vh" p={4} pb="120px">
       {/* 顶部导航栏 */}
       <Flex
         as="header"
@@ -1819,6 +1973,7 @@ function App() {
         p={4}
         mb={4}
       >
+        {/* existing header code */}
         <HStack spacing={4}>
           <Icon as={CalendarIcon} 
             color={isLightBackground ? "brand.800" : "brand.500"} 
@@ -1887,6 +2042,7 @@ function App() {
         color={colorMode === 'dark' ? "whiteAlpha.900" : "gray.700"}
         textShadow="0 2px 4px rgba(0,0,0,0.1)"
       >
+        {/* existing welcome message */}
         <VStack align="flex-start" spacing={2} flex="1">
           <Text 
             fontSize={{ base: "md", sm: "lg" }}
@@ -1896,169 +2052,196 @@ function App() {
             {t('welcome')}, {user?.name}！
           </Text>
           
-          <Flex width="100%" align="center" justify="flex-start">
-            <IconButton
-              aria-label={isEditing ? "保存目标" : "编辑目标"}
-              icon={isEditing ? <CheckIcon /> : <EditIcon />}
-              size="sm"
-              variant="ghost"
-              colorScheme="brand"
-              onClick={() => {
-                console.log("编辑按钮被点击，当前编辑状态:", isEditing);
-                // 直接切换编辑状态
-                const newEditingState = !isEditing;
-                setIsEditing(newEditingState);
-                // 设置编辑类型为goal
-                setEditingType(newEditingState ? 'goal' : null);
-                
-                // 如果切换到编辑模式，尝试聚焦输入框
-                if (newEditingState && inputRef.current) {
-                  // 使用setTimeout确保DOM更新后再聚焦
-                  setTimeout(() => {
-                    if (inputRef.current) {
-                      inputRef.current.focus();
-                      console.log("输入框已聚焦");
-                    }
-                  }, 100);
-                }
-              }}
-              mr={2}
-            />
-          
-            {isEditing || !shortGoal ? (
-              <Flex 
-                align="center" 
-                width={{ base: "100%", sm: "auto" }}
-                position="relative"
-                zIndex={2}
-                flex="1"
+          {/* existing editable goal section */}
+          {isEditing || !shortGoal ? (
+            <Flex 
+              align="center" 
+              width={{ base: "100%", sm: "auto" }}
+              position="relative"
+              zIndex={2}
+              flex="1"
+            >
+              <Menu 
+                closeOnSelect={true}
+                onOpen={() => {
+                  setIsEmojiMenuOpen(true);
+                }}
+                onClose={() => {
+                  setIsEmojiMenuOpen(false);
+                  if (isEditing) {
+                    // 调用focusInput函数而不是直接使用ref
+                    focusInput();
+                  }
+                }}
               >
-                <Menu 
-                  closeOnSelect={true}
-                  onOpen={() => {
-                    setIsEmojiMenuOpen(true);
-                  }}
-                  onClose={() => {
-                    setIsEmojiMenuOpen(false);
-                    if (isEditing) {
-                      // 调用focusInput函数而不是直接使用ref
-                      focusInput();
-                    }
-                  }}
-                >
-                  <MenuButton
-                    as={Button}
-                    aria-label="选择表情"
-                    mr={2}
-                    height="32px"
-                    minW="32px"
-                    p={0}
-                    borderRadius="full"
-                    fontSize="lg"
-                    bg="rgba(255, 255, 255, 0.2)"
-                    border="1px solid rgba(255, 255, 255, 0.15)"
-                    _hover={{
-                      bg: "rgba(255, 255, 255, 0.3)",
-                      borderColor: "brand.400",
-                    }}
-                    _active={{
-                      bg: "rgba(255, 255, 255, 0.4)",
-                    }}
-                    transition="all 0.2s ease"
-                    cursor="pointer"
-                  >
-                    {shortGoalEmoji}
-                  </MenuButton>
-                  <MenuList
-                    bg="rgba(255, 255, 255, 0.9)"
-                    backdropFilter="blur(10px)"
-                    border="1px solid rgba(255, 255, 255, 0.2)"
-                    borderRadius="md"
-                    boxShadow="lg"
-                    p={2}
-                    zIndex={10}
-                  >
-                    <SimpleGrid columns={5} spacing={2}>
-                      {commonEmojis.map((emojiItem: string) => (
-                        <Button
-                          key={emojiItem}
-                          onClick={() => {
-                            setShortGoalEmoji(emojiItem);
-                            // 选择表情后调用focusInput
-                            setTimeout(() => focusInput(), 10);
-                          }}
-                          fontSize="xl"
-                          height="36px"
-                          width="36px"
-                          p={0}
-                          bg={shortGoalEmoji === emojiItem ? "rgba(233, 175, 163, 0.2)" : "transparent"}
-                          _hover={{ bg: "rgba(233, 175, 163, 0.1)" }}
-                          borderRadius="md"
-                          cursor="pointer"
-                        >
-                          {emojiItem}
-                        </Button>
-                      ))}
-                    </SimpleGrid>
-                  </MenuList>
-                </Menu>
-                
-                {/* 回到Chakra Input但添加必要的样式属性 */}
-                <Editable
-                  defaultValue={shortGoal || ''}
-                  value={shortGoal}
-                  onChange={(value) => setShortGoal(value)}
-                  placeholder={language === 'zh' ? "分享一下这周的小目标吧" : "Share your goals for this week"}
-                  fontSize="14px"
-                  width="auto"
-                  maxWidth={{ base: "100%", sm: shortGoal ? `${Math.max(320, Math.min(600, shortGoal.length * 12))}px` : "320px" }}
-                  bg="rgba(255, 255, 255, 0.2)"
-                  px={4}
-                  py={1}
+                <MenuButton
+                  as={Button}
+                  aria-label="选择表情"
+                  mr={2}
+                  height="32px"
+                  minW="32px"
+                  p={0}
                   borderRadius="full"
+                  fontSize="lg"
+                  bg="rgba(255, 255, 255, 0.2)"
                   border="1px solid rgba(255, 255, 255, 0.15)"
                   _hover={{
                     bg: "rgba(255, 255, 255, 0.3)",
                     borderColor: "brand.400",
-                    boxShadow: "0 2px 6px rgba(233, 175, 163, 0.2)"
                   }}
-                  onFocus={() => {
-                    setIsEditing(true);
-                    setIsInputFocused(true);
+                  _active={{
+                    bg: "rgba(255, 255, 255, 0.4)",
                   }}
-                  onBlur={() => {
-                    setIsInputFocused(false);
-                    handleGoalEditComplete();
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                  cursor="text"
-                  zIndex={3}
+                  transition="all 0.2s ease"
+                  cursor="pointer"
                 >
-                  <EditablePreview 
-                    cursor="text"
-                    px={0}
-                    py={0}
-                    _hover={{ cursor: "text" }}
-                  />
-                  <EditableInput 
-                    ref={inputRef}
-                    px={0}
-                    py={0}
-                    cursor="text"
-                    _focus={{ cursor: "text" }}
-                    _hover={{ cursor: "text" }}
-                    maxLength={40}
-                  />
-                </Editable>
-              </Flex>
-            ) : (
+                  {shortGoalEmoji}
+                </MenuButton>
+                <MenuList
+                  bg="rgba(255, 255, 255, 0.9)"
+                  backdropFilter="blur(10px)"
+                  border="1px solid rgba(255, 255, 255, 0.2)"
+                  borderRadius="md"
+                  boxShadow="lg"
+                  p={2}
+                  zIndex={10}
+                >
+                  <SimpleGrid columns={5} spacing={2}>
+                    {commonEmojis.map((emojiItem: string) => (
+                      <Button
+                        key={emojiItem}
+                        onClick={() => {
+                          setShortGoalEmoji(emojiItem);
+                          // 选择表情后调用focusInput
+                          setTimeout(() => focusInput(), 10);
+                        }}
+                        fontSize="xl"
+                        height="36px"
+                        width="36px"
+                        p={0}
+                        bg={shortGoalEmoji === emojiItem ? "rgba(233, 175, 163, 0.2)" : "transparent"}
+                        _hover={{ bg: "rgba(233, 175, 163, 0.1)" }}
+                        borderRadius="md"
+                        cursor="pointer"
+                      >
+                        {emojiItem}
+                      </Button>
+                    ))}
+                  </SimpleGrid>
+                </MenuList>
+              </Menu>
+              
+              {/* 回到Chakra Input但添加必要的样式属性 */}
+              <Editable
+                defaultValue={shortGoal || ''}
+                value={shortGoal}
+                onChange={(value) => setShortGoal(value)}
+                placeholder={language === 'zh' ? "分享一下这周的小目标吧" : "Share your goals for this week"}
+                fontSize="14px"
+                width="auto"
+                maxWidth={{ base: "100%", sm: shortGoal ? `${Math.max(320, Math.min(600, shortGoal.length * 12))}px` : "320px" }}
+                bg="rgba(255, 255, 255, 0.2)"
+                px={4}
+                py={1}
+                borderRadius="full"
+                border="1px solid rgba(255, 255, 255, 0.15)"
+                _hover={{
+                  bg: "rgba(255, 255, 255, 0.3)",
+                  borderColor: "brand.400",
+                  boxShadow: "0 2px 6px rgba(233, 175, 163, 0.2)"
+                }}
+                onFocus={() => {
+                  setIsEditing(true);
+                  setIsInputFocused(true);
+                }}
+                onBlur={() => {
+                  setIsInputFocused(false);
+                  handleGoalEditComplete();
+                }}
+                onClick={(e) => e.stopPropagation()}
+                cursor="text"
+                zIndex={3}
+              >
+                <EditablePreview 
+                  cursor="text"
+                  px={0}
+                  py={0}
+                  _hover={{ cursor: "text" }}
+                />
+                <EditableInput 
+                  ref={inputRef}
+                  px={0}
+                  py={0}
+                  cursor="text"
+                  _focus={{ cursor: "text" }}
+                  _hover={{ cursor: "text" }}
+                  maxLength={40}
+                />
+              </Editable>
+
+              <IconButton
+                aria-label={isEditing ? "保存目标" : "编辑目标"}
+                icon={isEditing ? <CheckIcon /> : <EditIcon />}
+                size="sm"
+                variant="ghost"
+                colorScheme="brand"
+                onClick={() => {
+                  console.log("编辑按钮被点击，当前编辑状态:", isEditing);
+                  // 直接切换编辑状态
+                  const newEditingState = !isEditing;
+                  setIsEditing(newEditingState);
+                  // 设置编辑类型为goal
+                  setEditingType(newEditingState ? 'goal' : null);
+                  
+                  // 如果是从编辑状态切换到非编辑状态（点击对勾确认），不做特殊处理
+                  // formattedDate 在非编辑状态下会自动显示
+                  
+                  // 如果切换到编辑模式，尝试聚焦输入框
+                  if (newEditingState && inputRef.current) {
+                    // 使用setTimeout确保DOM更新后再聚焦
+                    setTimeout(() => {
+                      if (inputRef.current) {
+                        inputRef.current.focus();
+                        console.log("输入框已聚焦");
+                      }
+                    }, 100);
+                  }
+                }}
+                ml={2}
+              />
+            </Flex>
+          ) : (
+            <Flex align="center" width="100%">
+              {/* 表情符号独立模块 */}
               <Box
-                flex="1"
+                display="flex"
+                alignItems="center"
+                justifyContent="center"
+                borderRadius="full"
+                bg="rgba(255, 255, 255, 0.25)"
+                border="1px solid rgba(233, 175, 163, 0.2)"
+                boxShadow="0 2px 8px rgba(0,0,0,0.05)"
+                p={2}
+                height="40px"
+                width="40px"
+                mr={3}
+                transition="all 0.3s ease"
+                _hover={{
+                  bg: "rgba(255, 255, 255, 0.35)",
+                  transform: "translateY(-1px)",
+                  boxShadow: "0 4px 12px rgba(233, 175, 163, 0.2)"
+                }}
+                cursor="pointer"
                 onClick={() => {
                   setIsEditing(true);
-                  // 调用focusInput函数而不是直接使用ref
                   focusInput();
                 }}
+              >
+                <Text fontSize="xl" lineHeight="1">{shortGoalEmoji}</Text>
+              </Box>
+              
+              {/* 目标文本独立模块 */}
+              <Box
                 borderRadius="full"
                 px={4}
                 py={1}
@@ -2067,7 +2250,8 @@ function App() {
                 boxShadow="0 2px 8px rgba(0,0,0,0.05)"
                 cursor="pointer"
                 transition="all 0.3s ease"
-                maxWidth={{ base: "100%", sm: shortGoal ? `${Math.max(320, Math.min(600, shortGoal.length * 12))}px` : "320px" }}
+                flex="1"
+                maxWidth={{ base: "100%", sm: shortGoal ? `${Math.max(280, Math.min(500, shortGoal.length * 12))}px` : "280px" }}
                 _hover={{
                   bg: "rgba(255, 255, 255, 0.35)",
                   transform: "translateY(-1px)",
@@ -2076,13 +2260,19 @@ function App() {
                 role="button"
                 tabIndex={0}
                 aria-label={language === 'zh' ? "编辑目标" : "Edit goal"}
-                // 添加键盘访问支持
+                onClick={() => {
+                  setIsEditing(true);
+                  focusInput();
+                }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
                     setIsEditing(true);
                     focusInput();
                   }
                 }}
+                display="flex"
+                alignItems="center"
+                justifyContent="space-between"
               >
                 <Text
                   fontFamily={language === 'en' ? "bodoni" : "inherit"}
@@ -2091,15 +2281,12 @@ function App() {
                   letterSpacing="0.4px"
                   color="brand.700"
                   textShadow="0 1px 2px rgba(255,255,255,0.5)"
-                  display="flex"
-                  alignItems="center"
-                  flexWrap="nowrap"
-                  whiteSpace="nowrap"
                   overflow="hidden"
                   textOverflow="ellipsis"
+                  whiteSpace="nowrap"
+                  width="calc(100% - 30px)"
                 >
-                  <Box as="span" flexShrink={0}>{shortGoalEmoji}</Box>{' '}
-                  <Box as="span" overflow="hidden" textOverflow="ellipsis">{shortGoal}</Box>
+                  {shortGoal}
                   <Box as="span" 
                     fontSize="xs" 
                     ml={2} 
@@ -2107,32 +2294,48 @@ function App() {
                     fontStyle="italic"
                     color="gray.600"
                     flexShrink={0}
-                    whiteSpace="nowrap"
+                    display="inline-block"
                   >
                     {typeof getFormattedDate === 'function' ? `on ${getFormattedDate()}` : ''}
                   </Box>
                 </Text>
+                <IconButton
+                  aria-label="编辑目标"
+                  icon={<EditIcon />}
+                  size="sm"
+                  variant="ghost"
+                  colorScheme="brand"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsEditing(true);
+                    setEditingType('goal');
+                    focusInput();
+                  }}
+                  ml={1}
+                />
               </Box>
-            )}
-          </Flex>
+            </Flex>
+          )}
         </VStack>
+
+        {/* 连续打卡标签 */}
         <HStack spacing={3}>
-          <Text 
-            fontSize={{ base: "sm", sm: "md" }}
+          <Text
+            fontSize={{ base: "xs", sm: "sm" }}
+            color="brand.700"
             fontFamily={language === 'en' ? "forte" : "inherit"}
             fontWeight={language === 'en' ? "normal" : "medium"}
           >
             {t('consecutiveDays')}
           </Text>
           <Badge 
-            colorScheme="brand" 
-            fontSize={{ base: "sm", sm: "md" }}
+            py={1} 
+            px={3} 
+            colorScheme="pink" 
             borderRadius="full" 
-            px={4} 
-            py={1}
+            fontSize={{ base: "xs", sm: "sm" }}
             bg="rgba(233, 175, 163, 0.2)"
-            border="1px solid rgba(233, 175, 163, 0.3)"
-            boxShadow="0 2px 4px rgba(0,0,0,0.1)"
+            color="brand.700"
             fontFamily={language === 'en' ? "forte" : "inherit"}
             fontWeight={language === 'en' ? "normal" : "medium"}
             textTransform="none"
@@ -2142,323 +2345,387 @@ function App() {
         </HStack>
       </Flex>
 
-      <Tabs 
-        index={activeTab} 
-        onChange={setActiveTab} 
-        variant="glass" 
-        colorScheme="brand"
-      >
-        <TabList
-          p={1}
-          bg="rgba(255, 255, 255, 0.2)"
-          borderRadius="lg"
-          boxShadow="sm"
-          border="1px solid rgba(255, 255, 255, 0.2)"
-          mb={4}
-        >
-          <Tab
-            _selected={{
-              color: 'white',
-              bg: 'brand.500',
-              boxShadow: 'md'
-            }}
-            borderRadius="md"
-            fontWeight="medium"
-            mx={1}
-            py={2}
-            transition="all 0.2s"
-            fontFamily={language === 'en' ? "bodoni" : "inherit"}
-          >
-            {t('writeDiary')}
-          </Tab>
-          <Tab
-            _selected={{
-              color: 'white',
-              bg: 'brand.500',
-              boxShadow: 'md'
-            }}
-            borderRadius="md"
-            fontWeight="medium"
-            mx={1}
-            py={2}
-            transition="all 0.2s"
-            fontFamily={language === 'en' ? "bodoni" : "inherit"}
-          >
-            {t('viewDiary')}
-          </Tab>
-          <Tab
-            _selected={{
-              color: 'white',
-              bg: 'brand.500',
-              boxShadow: 'md'
-            }}
-            borderRadius="md"
-            fontWeight="medium"
-            mx={1}
-            py={2}
-            transition="all 0.2s"
-            fontFamily={language === 'en' ? "bodoni" : "inherit"}
-          >
-            {t('moodCalendar')}
-          </Tab>
-        </TabList>
-        
-        <TabPanels>
+      {/* Replace with Custom Tab Panels */}
+      <Box>
+        {/* Tab Panels Content */}
+        <Box>
           {/* 写日记面板 */}
-          <TabPanel p={0}>
-            <Box
-              p={6}
-              borderRadius="xl"
-              bg="rgba(255, 255, 255, 0.2)"
-              boxShadow="lg"
-              border="1px solid rgba(255, 255, 255, 0.2)"
-              transform="translateY(0)"
-              transition="all 0.3s"
-              _hover={{
-                transform: "translateY(-5px)",
-                boxShadow: "xl"
-              }}
-            >
-              <VStack spacing={4} align="stretch">
-              {isEditing && activeTab === 0 && editingType === 'diary' && (
-                  <Box bg="rgba(254, 252, 191, 0.6)" p={3} borderRadius="md">
-                  <HStack spacing={3}>
-                    <CalendarIcon color="brand.500" />
-                    <Text>{t('editingDiary')} {editingDiary && editingDiary.date ? format(parseISO(editingDiary.date), 'yyyy年MM月dd日') : ''} {t('diaryDate')}</Text>
-                  </HStack>
-                  <Button size="sm" mt={2} onClick={cancelEditing}>{t('cancelEdit')}</Button>
-                </Box>
-              )}
-              
-              <FormControl>
-                <FormLabel fontFamily={language === 'en' ? "bodoni" : "inherit"}>{t('date')}</FormLabel>
-                <Input 
-                  type="date" 
-                  value={selectedDate}
-                  onChange={(e) => setSelectedDate(e.target.value)}
-                  bg="rgba(255, 255, 255, 0.3)"
-                />
-              </FormControl>
-
-              <FormControl>
-                <FormLabel fontFamily={language === 'en' ? "bodoni" : "inherit"}>{t('mood')}</FormLabel>
-                <HStack spacing={2} wrap="wrap">
-                  {moodEmojis.map((emoji) => (
-                    <Button 
-                      key={emoji}
-                      onClick={() => setSelectedMood(emoji)}
-                      variant={selectedMood === emoji ? "solid" : "outline"}
-                      bg={selectedMood === emoji ? getMoodColor(emoji) : "rgba(255, 255, 255, 0.3)"}
-                      color={selectedMood === emoji ? "white" : "gray.700"}
-                      borderColor={getMoodColor(emoji, 0.5)}
-                      _hover={{ 
-                        bg: selectedMood === emoji ? getMoodColor(emoji) : getMoodColor(emoji, 0.2),
-                        transform: "translateY(-2px)"
-                      }}
-                      fontSize="20px"
-                      transition="all 0.2s ease"
-                    >
-                      {emoji}
-                    </Button>
-                  ))}
-                </HStack>
-              </FormControl>
-
-              <FormControl>
-                <FormLabel fontFamily={language === 'en' ? "bodoni" : "inherit"}>{t('content')} {t('tagTip')}</FormLabel>
-                <Textarea 
-                  placeholder={t('contentPlaceholder')}
-                  size="lg" 
-                  minH="200px"
-                  value={content}
-                  onChange={(e) => setContent(e.target.value)}
-                  bg="rgba(255, 255, 255, 0.3)"
-                  border="1px solid rgba(255, 255, 255, 0.2)"
-                  borderRadius="md"
-                  _hover={{ borderColor: "brand.500" }}
-                  _focus={{ borderColor: "brand.500", boxShadow: "0 0 0 1px #EA6C3C" }}
-                />
-              </FormControl>
-
-              {/* 标签输入部分 */}
-              <FormControl>
-                <FormLabel fontFamily={language === 'en' ? "bodoni" : "inherit"}>{t('addTag')}</FormLabel>
-                <Flex>
-                  <Input 
-                    placeholder={t('inputTag')}
-                    value={tagInput}
-                    onChange={(e) => setTagInput(e.target.value)}
-                    mr={2}
-                    bg="rgba(255, 255, 255, 0.3)"
-                    border="1px solid rgba(255, 255, 255, 0.2)"
-                    _hover={{ borderColor: "brand.500" }}
-                    _focus={{ borderColor: "brand.500", boxShadow: "0 0 0 1px #EA6C3C" }}
-                  />
-                  <Button 
-                    onClick={addTag} 
-                    leftIcon={<AddIcon />}
-                    colorScheme="brand"
-                    isDisabled={!tagInput || tags.includes(tagInput)}
-                    _hover={{ transform: "translateY(-2px)", boxShadow: "md" }}
-                    transition="all 0.2s"
-                  >
-                    {t('add')}
-                  </Button>
-                </Flex>
-                
-                {tags.length > 0 && (
-                  <Wrap mt={2} spacing={2}>
-                    {tags.map(tag => (
-                      <WrapItem key={tag}>
-                        <Tag 
-                          size="md" 
-                          borderRadius="full" 
-                          variant="solid" 
-                          colorScheme="brand"
-                        >
-                          <TagLabel>#{tag}</TagLabel>
-                          <TagCloseButton onClick={() => removeTag(tag)} />
-                        </Tag>
-                      </WrapItem>
-                    ))}
-                  </Wrap>
-                )}
-              </FormControl>
-
-              <FormControl>
-                <FormLabel fontFamily={language === 'en' ? "bodoni" : "inherit"}>{t('addImage')}</FormLabel>
-                <Input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleImageChange}
-                  p={1}
-                  bg="rgba(255, 255, 255, 0.2)"
-                  borderRadius="md"
-                />
-                {imagePreview && (
-                  <Box mt={2}>
-                    <Image 
-                      src={imagePreview} 
-                      alt="日记图片预览" 
-                      maxH="200px" 
-                      borderRadius="md"
-                    />
-                  </Box>
-                )}
-              </FormControl>
-
-              <Button 
-                colorScheme="teal" 
-                size="lg" 
-                onClick={handleSaveDiary}
-                mt={4}
+          {activeTab === 0 && (
+            <Box p={0}>
+              <Box
+                p={6}
+                borderRadius="xl"
+                bg="rgba(255, 255, 255, 0.2)"
+                boxShadow="lg"
+                border="1px solid rgba(255, 255, 255, 0.2)"
+                transform="translateY(0)"
+                transition="all 0.3s"
+                _hover={{
+                  transform: "translateY(-5px)",
+                  boxShadow: "xl"
+                }}
               >
-                {t('save')}
-              </Button>
-            </VStack>
+                <VStack spacing={4} align="stretch">
+                  {isEditing && activeTab === 0 && editingType === 'diary' && (
+                    <Box bg="rgba(254, 252, 191, 0.6)" p={3} borderRadius="md">
+                      <HStack spacing={3}>
+                        <CalendarIcon color="brand.500" />
+                        <Text>{t('editingDiary')} {editingDiary && editingDiary.date ? format(parseISO(editingDiary.date), 'yyyy年MM月dd日') : ''} {t('diaryDate')}</Text>
+                      </HStack>
+                      <Button size="sm" mt={2} onClick={cancelEditing}>{t('cancelEdit')}</Button>
+                    </Box>
+                  )}
+                  
+                  <Box className="diary-main-content">
+                    <FormControl>
+                      <FormLabel fontFamily={language === 'en' ? "bodoni" : "inherit"}>{t('mood')}</FormLabel>
+                      <HStack spacing={2} wrap="wrap">
+                        {moodEmojis.map((emoji) => (
+                          <Button 
+                            key={emoji}
+                            onClick={() => setSelectedMood(emoji)}
+                            variant={selectedMood === emoji ? "solid" : "outline"}
+                            bg={selectedMood === emoji ? getMoodColor(emoji) : "rgba(255, 255, 255, 0.3)"}
+                            color={selectedMood === emoji ? "white" : "gray.700"}
+                            borderColor={getMoodColor(emoji, 0.5)}
+                            _hover={{ 
+                              bg: selectedMood === emoji ? getMoodColor(emoji) : getMoodColor(emoji, 0.2),
+                              transform: "translateY(-2px)"
+                            }}
+                            fontSize="20px"
+                            transition="all 0.2s ease"
+                          >
+                            {emoji}
+                          </Button>
+                        ))}
+                      </HStack>
+                    </FormControl>
+
+                    <FormControl mt={4}>
+                      <FormLabel fontFamily={language === 'en' ? "bodoni" : "inherit"}>{t('content')} {t('tagTip')}</FormLabel>
+                      <Textarea 
+                        placeholder={t('contentPlaceholder')}
+                        size="lg" 
+                        minH="200px"
+                        value={content}
+                        onChange={(e) => setContent(e.target.value)}
+                        bg="rgba(255, 255, 255, 0.3)"
+                        border="1px solid rgba(255, 255, 255, 0.2)"
+                        borderRadius="md"
+                        _hover={{ borderColor: "brand.500" }}
+                        _focus={{ borderColor: "brand.500", boxShadow: "0 0 0 1px #EA6C3C" }}
+                      />
+                    </FormControl>
+                  </Box>
+
+                  {/* Bottom Blocks Row - Redesigned Layout */}
+                  <Grid className="diary-bottom-layout">
+                    {/* Left Block - Image Upload (Full Height) */}
+                    <Box className="image-upload-area">
+                      <FormControl h="100%">
+                        <FormLabel fontFamily={language === 'en' ? "bodoni" : "inherit"} fontSize={{ base: "sm", sm: "md" }}>{t('addImage')}</FormLabel>
+                        <Flex direction="column" align="center" justify="center" h="100%">
+                          {!imagePreview ? (
+                            <>
+                              <Box 
+                                className="image-dropzone" 
+                                as="label" 
+                                htmlFor="image-upload"
+                                cursor="pointer"
+                                p={{ base: 2, sm: 4 }}
+                              >
+                                <Icon as={AddIcon} boxSize={{ base: 6, sm: 8 }} color="gray.400" mb={{ base: 1, sm: 3 }} />
+                                <Text fontSize={{ base: "xs", sm: "sm" }} color="gray.500">点击选择图片</Text>
+                              </Box>
+                              <Input
+                                type="file"
+                                accept="image/*"
+                                onChange={handleImageChange}
+                                p={1}
+                                bg="rgba(255, 255, 255, 0.2)"
+                                borderRadius="md"
+                                hidden
+                                id="image-upload"
+                              />
+                            </>
+                          ) : (
+                            <Box position="relative" w="100%" h="100%">
+                              <Image 
+                                src={imagePreview} 
+                                alt="日记图片预览" 
+                                objectFit="contain"
+                                maxH={{ base: "150px", sm: "200px" }}
+                                borderRadius="md"
+                                mx="auto"
+                              />
+                              <IconButton
+                                aria-label="Remove image"
+                                icon={<AddIcon transform="rotate(45deg)" />}
+                                size="sm"
+                                colorScheme="brand"
+                                position="absolute"
+                                top={0}
+                                right={0}
+                                onClick={() => {
+                                  setImage(null);
+                                  setImagePreview(null);
+                                }}
+                              />
+                            </Box>
+                          )}
+                        </Flex>
+                      </FormControl>
+                    </Box>
+
+                    {/* Right Top Block - Tag */}
+                    <Box className="tag-area">
+                      <FormControl>
+                        <FormLabel fontFamily={language === 'en' ? "bodoni" : "inherit"} fontSize={{ base: "sm", sm: "md" }}>{t('addTag')}</FormLabel>
+                        <Flex>
+                          <Input 
+                            placeholder={t('inputTag')}
+                            value={tagInput}
+                            onChange={(e) => setTagInput(e.target.value)}
+                            mr={2}
+                            bg="rgba(255, 255, 255, 0.3)"
+                            border="1px solid rgba(255, 255, 255, 0.2)"
+                            _hover={{ borderColor: "brand.500" }}
+                            _focus={{ borderColor: "brand.500", boxShadow: "0 0 0 1px #EA6C3C" }}
+                            fontSize={{ base: "xs", sm: "md" }}
+                            p={{ base: 1, sm: 2 }}
+                            height={{ base: "32px", sm: "40px" }}
+                          />
+                          <IconButton
+                            aria-label="Add tag"
+                            icon={<AddIcon />}
+                            onClick={addTag}
+                            colorScheme="brand"
+                            isDisabled={!tagInput || tags.includes(tagInput)}
+                            _hover={{ transform: "translateY(-2px)", boxShadow: "md" }}
+                            transition="all 0.2s"
+                            borderRadius="full"
+                            size="sm"
+                          />
+                        </Flex>
+                            
+                        {tags.length > 0 && (
+                          <Wrap mt={2} spacing={2}>
+                            {tags.map(tag => (
+                              <WrapItem key={tag}>
+                                <Tag 
+                                  size="md" 
+                                  borderRadius="full" 
+                                  variant="solid" 
+                                  colorScheme="brand"
+                                >
+                                  <TagLabel>#{tag}</TagLabel>
+                                  <TagCloseButton onClick={() => removeTag(tag)} />
+                                </Tag>
+                              </WrapItem>
+                            ))}
+                          </Wrap>
+                        )}
+                      </FormControl>
+                    </Box>
+
+                    {/* Right Bottom Block - Date - Adding the missing date picker component */}
+                    <Box className="date-area">
+                      <FormControl>
+                        <FormLabel fontFamily={language === 'en' ? "bodoni" : "inherit"} mb={0} fontSize={{ base: "sm", sm: "md" }}>{t('date')}</FormLabel>
+                        <Flex>
+                          <Input 
+                            type="date" 
+                            value={selectedDate}
+                            onChange={(e) => setSelectedDate(e.target.value)}
+                            bg="rgba(255, 255, 255, 0.3)"
+                            border="1px solid rgba(255, 255, 255, 0.2)"
+                            _hover={{ borderColor: "brand.500" }}
+                            _focus={{ borderColor: "brand.500", boxShadow: "0 0 0 1px #EA6C3C" }}
+                            id="date-input"
+                            mr={2}
+                            fontSize={{ base: "xs", sm: "md" }}
+                            p={{ base: 1, sm: 2 }}
+                            height={{ base: "32px", sm: "40px" }}
+                            sx={{
+                              // 隐藏日期输入框的日历图标
+                              '::-webkit-calendar-picker-indicator': {
+                                display: 'none'
+                              },
+                              '::-webkit-inner-spin-button': { 
+                                display: 'none'
+                              },
+                              '::-webkit-clear-button': {
+                                display: 'none'
+                              }
+                            }}
+                          />
+                          <IconButton
+                            aria-label="Select date"
+                            icon={<CalendarIcon />}
+                            colorScheme="brand"
+                            onClick={() => {
+                              // 创建一个虚拟点击事件来触发日期选择器
+                              const dateInput = document.getElementById('date-input');
+                              if (dateInput) {
+                                const event = new MouseEvent('click', {
+                                  view: window,
+                                  bubbles: true,
+                                  cancelable: true
+                                });
+                                dateInput.dispatchEvent(event);
+                              }
+                            }}
+                            _hover={{ transform: "translateY(-2px)", boxShadow: "md" }}
+                            transition="all 0.2s"
+                            borderRadius="full"
+                            size="sm"
+                          />
+                        </Flex>
+                      </FormControl>
+                    </Box>
+                  </Grid>
+
+                  <Button 
+                    className="save-button"
+                    colorScheme="teal" 
+                    size="lg" 
+                    onClick={handleSaveDiary}
+                    mt={4}
+                  >
+                    {t('save')}
+                  </Button>
+                </VStack>
+              </Box>
             </Box>
-          </TabPanel>
+          )}
           
           {/* 历史记录面板 */}
-          <TabPanel>
-            <Box
-              p={6}
-              borderRadius="xl"
-              bg="rgba(255, 255, 255, 0.2)"
-              boxShadow="lg"
-              border="1px solid rgba(255, 255, 255, 0.2)"
-            >
-            <VStack spacing={4} align="stretch">
-              <Flex justify="space-between" align="center">
-                <Heading as="h2" size="md" fontFamily={language === 'zh' ? "cursive" : "bodoni"}>{t('myDiary')}</Heading>
-                <HStack spacing={2}>
-                  <Menu>
-                      <MenuButton as={Button} rightIcon={<ChevronDownIcon />} size="sm" bg="rgba(255, 255, 255, 0.3)">
-                      {selectedTag ? `${t('tag')}: #${selectedTag}` : t('allDiaries')}
-                    </MenuButton>
-                      <MenuList bg="rgba(255, 255, 255, 0.8)">
-                      <MenuItem onClick={() => setSelectedTag(null)}>{t('allDiaries')}</MenuItem>
-                      <Divider />
-                      {allTags.map(tag => (
-                        <MenuItem key={tag} onClick={() => setSelectedTag(tag)}>
-                          #{tag}
-                        </MenuItem>
-                      ))}
-                    </MenuList>
-                  </Menu>
-                </HStack>
-              </Flex>
-              
-              {filteredDiaries.length === 0 ? (
-                  <Text textAlign="center" py={10} color="neutrals.800">
-                  {t('noDiaries')}
-                </Text>
-              ) : (
-                <SimpleGrid columns={[1, null, 2]} spacing={4}>
-                  {filteredDiaries
-                    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-                    .map(diary => (
-                      <Card 
-                        key={diary.id} 
-                        variant="glass" 
-                        cursor="pointer" 
-                        onClick={() => openDiaryDetail(diary)}
-                        _hover={{ boxShadow: 'lg', transform: 'translateY(-4px)' }}
-                        transition="all 0.3s ease"
-                        bg="rgba(255, 255, 255, 0.3)"
-                        borderLeft={`3px solid ${getMoodColor(diary.mood)}`}
-                      >
-                      <CardHeader pb={2}>
-                        <Flex justify="space-between" align="center">
-                          <HStack>
-                            <Text fontSize="2xl">{diary.mood}</Text>
-                            <Text fontWeight="bold">{format(parseISO(diary.date), 'yyyy年MM月dd日')}</Text>
-                          </HStack>
-                            <Text fontSize="sm" color="neutrals.800">
-                            {format(parseISO(diary.createdAt), 'HH:mm')}
-                          </Text>
-                        </Flex>
-                      </CardHeader>
-                      <CardBody pt={0}>
-                        <Text noOfLines={3}>{diary.content}</Text>
-                        {diary.tags && diary.tags.length > 0 && (
-                          <HStack mt={2} spacing={2} wrap="wrap">
-                            {diary.tags.map(tag => (
-                                <Badge key={tag} colorScheme="brand" bg="rgba(233, 175, 163, 0.2)" color="brand.700">#{tag}</Badge>
-                            ))}
-                          </HStack>
-                        )}
-                      </CardBody>
-                    </Card>
-                  ))}
-                </SimpleGrid>
-              )}
-            </VStack>
+          {activeTab === 1 && (
+            <Box>
+              <Box
+                p={6}
+                borderRadius="xl"
+                bg="rgba(255, 255, 255, 0.2)"
+                boxShadow="lg"
+                border="1px solid rgba(255, 255, 255, 0.2)"
+              >
+              <VStack spacing={4} align="stretch">
+                <Flex justify="space-between" align="center">
+                  <Heading as="h2" size="md" fontFamily={language === 'zh' ? "cursive" : "bodoni"}>{t('myDiary')}</Heading>
+                  <HStack spacing={2}>
+                    <Menu>
+                        <MenuButton as={Button} rightIcon={<ChevronDownIcon />} size="sm" bg="rgba(255, 255, 255, 0.3)">
+                        {selectedTag ? `${t('tag')}: #${selectedTag}` : t('allDiaries')}
+                      </MenuButton>
+                        <MenuList bg="rgba(255, 255, 255, 0.8)">
+                        <MenuItem onClick={() => setSelectedTag(null)}>{t('allDiaries')}</MenuItem>
+                        <Divider />
+                        {allTags.map(tag => (
+                          <MenuItem key={tag} onClick={() => setSelectedTag(tag)}>
+                            #{tag}
+                          </MenuItem>
+                        ))}
+                      </MenuList>
+                    </Menu>
+                  </HStack>
+                </Flex>
+                
+                {filteredDiaries.length === 0 ? (
+                    <Text textAlign="center" py={10} color="neutrals.800">
+                    {t('noDiaries')}
+                  </Text>
+                ) : (
+                  <SimpleGrid columns={[1, null, 2]} spacing={4}>
+                    {filteredDiaries
+                      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                      .map(diary => (
+                        <Card 
+                          key={diary.id} 
+                          variant="glass" 
+                          cursor="pointer" 
+                          onClick={() => openDiaryDetail(diary)}
+                          _hover={{ boxShadow: 'lg', transform: 'translateY(-4px)' }}
+                          transition="all 0.3s ease"
+                          bg="rgba(255, 255, 255, 0.3)"
+                          borderLeft={`3px solid ${getMoodColor(diary.mood)}`}
+                        >
+                        <CardHeader pb={2}>
+                          <Flex justify="space-between" align="center">
+                            <HStack>
+                              <Text fontSize="2xl">{diary.mood}</Text>
+                              <Text fontWeight="bold">{format(parseISO(diary.date), 'yyyy年MM月dd日')}</Text>
+                            </HStack>
+                              <Text fontSize="sm" color="neutrals.800">
+                              {format(parseISO(diary.createdAt), 'HH:mm')}
+                            </Text>
+                          </Flex>
+                        </CardHeader>
+                        <CardBody pt={0}>
+                          <Text noOfLines={3}>{diary.content}</Text>
+                          {diary.tags && diary.tags.length > 0 && (
+                            <HStack mt={2} spacing={2} wrap="wrap">
+                              {diary.tags.map(tag => (
+                                  <Badge key={tag} colorScheme="brand" bg="rgba(233, 175, 163, 0.2)" color="brand.700">#{tag}</Badge>
+                              ))}
+                            </HStack>
+                          )}
+                        </CardBody>
+                      </Card>
+                    ))}
+                  </SimpleGrid>
+                )}
+              </VStack>
+              </Box>
             </Box>
-          </TabPanel>
+          )}
           
           {/* "心情日历"的标签页 */}
-          <TabPanel>
-            <Box
-              p={6}
-              borderRadius="xl"
-              bg="rgba(255, 255, 255, 0.2)"
-              boxShadow="lg"
-              border="1px solid rgba(255, 255, 255, 0.2)"
-            >
-              <VStack spacing={4} align="stretch">
-                <Heading as="h2" size="md" fontFamily={language === 'zh' ? "cursive" : "bodoni"}>{t('moodCalendar')}</Heading>
-                <Box>
-                  {renderCalendar()}
-                </Box>
-                <Text fontSize="sm" color="gray.500" textAlign="center">
-                   
-                </Text>
-              </VStack>
+          {activeTab === 2 && (
+            <Box>
+              <Box
+                p={6}
+                borderRadius="xl"
+                bg="rgba(255, 255, 255, 0.2)"
+                boxShadow="lg"
+                border="1px solid rgba(255, 255, 255, 0.2)"
+              >
+                <VStack spacing={4} align="stretch">
+                  <Flex justify="space-between" align="center" mb={3}>
+                    <Heading as="h2" size="md" fontFamily={language === 'zh' ? "cursive" : "bodoni"}>
+                      {t('moodCalendar')}
+                    </Heading>
+                    <Button
+                      leftIcon={<Icon as={FaShare} />}
+                      colorScheme="brand"
+                      size="sm"
+                      bg={`${getMoodColor('😊', 0.2)}`}
+                      color="brand.700"
+                      border={`1px solid ${getMoodColor('😊', 0.4)}`}
+                      onClick={handleShareCalendar}
+                    >
+                      {t('share')}
+                    </Button>
+                  </Flex>
+                  <Box className="calendar-container">
+                    {renderCalendar()}
+                  </Box>
+                  <Text fontSize="sm" color="gray.500" textAlign="center">
+                     
+                  </Text>
+                </VStack>
+              </Box>
             </Box>
-          </TabPanel>
-        </TabPanels>
-      </Tabs>
+          )}
+        </Box>
+      </Box>
+      
+      {/* Bottom Tab Bar */}
+      <BottomTabBar 
+        activeTab={activeTab} 
+        setActiveTab={setActiveTab} 
+        language={language} 
+        t={t}
+      />
       
       {/* 日记详情模态框 */}
       <Modal isOpen={isDetailOpen} onClose={onDetailClose} size="xl">
@@ -2689,10 +2956,24 @@ function App() {
   // 使用壁纸背景包装应用内容
   return (
     <ChakraProvider theme={theme}>
-      <WallpaperBackground enablePullToRefresh={isLoggedIn}>
-        {isLoggedIn ? renderMainApp() : renderAuthForm()}
-      </WallpaperBackground>
       <CustomStyles />
+      <WallpaperBackground enablePullToRefresh={isLoggedIn}>
+        {isLoggedIn ? renderMainApp() : (
+          <LoginPage 
+            language={language} 
+            toggleLanguage={toggleLanguage}
+            loginForm={loginForm}
+            setLoginForm={setLoginForm}
+            registerForm={registerForm}
+            setRegisterForm={setRegisterForm}
+            isRegistering={isRegistering}
+            setIsRegistering={setIsRegistering}
+            handleLogin={handleLogin}
+            handleRegister={handleRegister}
+            t={t as (key: any) => string}
+          />
+        )}
+      </WallpaperBackground>
     </ChakraProvider>
   );
 }

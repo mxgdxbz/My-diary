@@ -22,5 +22,15 @@ service cloud.firestore {
       // 允许列出自己的所有日记
       allow list: if request.auth != null;
     }
+    
+    // 点赞规则
+    match /likes/{likeId} {
+      // 允许读取点赞数据
+      allow read: if request.auth != null;
+      // 允许创建和更新点赞
+      allow create, update: if request.auth != null && request.auth.uid == request.resource.data.userId;
+      // 允许删除自己的点赞
+      allow delete: if request.auth != null && request.auth.uid == resource.data.userId;
+    }
   }
 }
