@@ -1,32 +1,58 @@
 const functions = require('firebase-functions');
 const admin = require('firebase-admin');
 const cors = require('cors')({origin: true});
-const { OpenAI } = require('openai');
+const Anthropic = require('@anthropic-ai/sdk');
 const dotenv = require('dotenv');
+const path = require('path');
+const nodemailer = require('nodemailer');
 
-// 加载环境变量
-dotenv.config();
+// 加载环境变量 - 明确指定 .env 文件路径
+dotenv.config({ path: path.resolve(__dirname, '.env') });
 
 // 初始化 Firebase Admin
 if (!admin.apps.length) {
   admin.initializeApp();
 }
 
-// 初始化 OpenAI - 优先使用 Firebase 配置中的 API 密钥，如果不存在则使用环境变量
-let openaiApiKey;
+// 初始化 Anthropic - 优先使用 Firebase 配置中的 API 密钥，如果不存在则使用环境变量
+let anthropicApiKey;
 try {
   // Use definite property access instead of optional chaining
   const config = functions.config();
-  openaiApiKey = config.openai && config.openai.apikey;
-  console.log('使用 Firebase 配置中的 OpenAI API 密钥');
+  anthropicApiKey = config.anthropic && config.anthropic.apikey;
+  console.log('使用 Firebase 配置中的 Anthropic API 密钥');
 } catch (error) {
   // 如果获取失败，使用环境变量
   console.log('无法从 Firebase 配置获取 API 密钥，使用环境变量');
 }
 
-// 初始化 OpenAI
-const openai = new OpenAI({
-  apiKey: openaiApiKey || process.env.OPENAI_API_KEY,
+// 从环境变量获取 API 密钥（作为备选）
+const envApiKey = process.env.ANTHROPIC_API_KEY;
+
+// 打印调试信息（注意：不要在生产环境中打印完整密钥）
+console.log('API 密钥状态:', {
+  configKeyExists: !!anthropicApiKey,
+  envKeyExists: !!envApiKey,
+  envKeyFirstChars: envApiKey ? `${envApiKey.substring(0, 4)}...` : 'N/A'
+});
+
+// 确保API密钥已设置
+if (!anthropicApiKey && !envApiKey) {
+  console.error('警告: 未设置Anthropic API密钥，API调用将会失败');
+}
+
+// 初始化 Anthropic (确保apiKey字段正确传递)
+const anthropic = new Anthropic({
+  apiKey: anthropicApiKey || envApiKey || ''
+});
+
+// 创建邮件传输器
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS
+  }
 });
 
 // 分析日记的函数
@@ -55,41 +81,60 @@ exports.analyzeDiaryWithAI = functions.https.onRequest((req, res) => {
         return res.status(403).json({error: '用户身份验证失败'});
       }
       
-      console.log('开始AI分析日记:', diaryId);
-
-      // 使用 AI 分析日记
-      const analysis = await analyzeContentWithAI(diary, mood, tags, date, previousDiaries);
-      
-      // 将分析结果保存到数据库
-      await admin.firestore().collection('analyses').add({
-        diaryId,
-        userId,
-        analysis,
-        isAI: true,
-        timestamp: admin.firestore.FieldValue.serverTimestamp(),
-      });
-      
-      console.log('日记分析完成并已保存');
-      return res.status(200).json({analysis});
-    } catch (error) {
-      console.error('分析日记时出错:', error);
-      
-      // 如果 AI 分析失败，回退到基本分析
-      if (error.message.includes('OpenAI') || error.message.includes('API')) {
-        try {
-          console.log('AI分析失败，回退到基本分析');
-          const {diary, mood, tags} = req.body;
-          const basicAnalysis = await analyzeContentBasic(diary, mood, tags);
-          return res.status(200).json({
-            analysis: basicAnalysis,
-            note: '由于AI服务暂时不可用，我们提供了基本分析。'
-          });
-        } catch (fallbackError) {
-          console.error('基本分析也失败了:', fallbackError);
-        }
+      // 检查API密钥是否配置
+      if (!anthropic.apiKey) {
+        console.log('API密钥未设置，使用基本分析模式');
+        const basicAnalysis = await analyzeContentBasic(diary, mood, tags);
+        
+        // 返回成功状态码，但带有提示信息
+        return res.status(200).json({
+          analysis: basicAnalysis,
+          isAIAnalysis: false,
+          message: '由于AI服务暂时不可用，我们提供了基本分析。'
+        });
       }
       
-      return res.status(500).json({error: '处理请求时出错', details: error.message});
+      console.log('开始AI分析日记:', diaryId);
+
+      try {
+        // 使用 AI 分析日记
+        const analysis = await analyzeContentWithAI(diary, mood, tags, date, previousDiaries);
+        
+        // 将分析结果保存到数据库
+        await admin.firestore().collection('analyses').add({
+          diaryId,
+          userId,
+          analysis,
+          isAI: true,
+          timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        
+        console.log('日记分析完成并已保存');
+        return res.status(200).json({
+          analysis,
+          isAIAnalysis: true
+        });
+      } catch (aiError) {
+        // AI 分析失败，使用基本分析作为备选
+        console.error('AI分析失败，使用基本分析:', aiError);
+        const basicAnalysis = await analyzeContentBasic(diary, mood, tags);
+        
+        // 仍然返回成功状态码
+        return res.status(200).json({
+          analysis: basicAnalysis,
+          isAIAnalysis: false,
+          message: '由于AI服务暂时不可用，我们提供了基本分析。',
+          debug: process.env.NODE_ENV === 'development' ? aiError.message : undefined
+        });
+      }
+    } catch (error) {
+      console.error('处理请求时出错:', error);
+      
+      // 只有在无法生成任何分析时才返回500错误
+      return res.status(500).json({
+        error: '处理请求时出错',
+        details: error.message
+      });
     }
   });
 });
@@ -116,7 +161,7 @@ async function analyzeContentWithAI(content, mood, tags = [], date, previousDiar
       });
     }
     
-    // 构建 OpenAI 提示
+    // 构建 提示
     const systemPrompt = `你是一位温暖、善解人意的心理顾问和日记伴侣。你的任务是分析用户的日记内容，并提供深入、个性化的反馈和建议。
 分析时请考虑以下要点：
 1. 识别用户日记中表达的情感和情绪
@@ -127,8 +172,8 @@ async function analyzeContentWithAI(content, mood, tags = [], date, previousDiar
 6. 如果发现长期的情绪模式（基于历史日记），可以指出这些模式
 7. 使用友好、温暖的语气，就像一位知心好友
 
-请用中文回复，以亲切自然的方式撰写，不要使用明显的模板化语言。回复长度控制在200-300字之间。
-避免任何可能被视为心理治疗的语言，你只是提供友好的反思和建议。可以推荐一些书籍和电影`;
+请用日记中使用的语种回复，以亲切自然的方式撰写，不要使用明显的模板化语言。回复长度控制在150-200字之间。
+避免任何可能被视为心理治疗的语言，你只是提供友好的反思和建议。可以加入一些相关且有趣的科普知识，或者推荐书籍和电影，如果是英文的，请加入文本或台词引用`;
 
     const userPrompt = `以下是我今天(${date})的日记：
 
@@ -142,23 +187,23 @@ ${diaryHistory}
 
     console.log('发送AI请求');
     
-    // 调用 OpenAI API
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini", // 使用最新版本 GPT 模型
-      temperature: 0.7,
+    // 调用 Anthropic API
+    const response = await anthropic.messages.create({
+      model: "claude-3-7-sonnet-20250219", // 使用Claude模型
+      max_tokens: 1024,
+      system: systemPrompt,  // 系统提示作为顶层参数，不放在messages数组中
       messages: [
-        { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt }
       ],
-      max_tokens: 1000,
+      temperature: 0.8,
     });
 
-    console.log('AI响应成功，生成字数:', response.choices[0].message.content.length);
+    console.log('AI响应成功，生成字数:', response.content[0].text.length);
     
-    return response.choices[0].message.content.trim();
+    return response.content[0].text.trim();
   } catch (error) {
     console.error('AI分析错误:', error);
-    throw new Error(`OpenAI API 错误: ${error.message}`);
+    throw new Error(`Anthropic API 错误: ${error.message}`);
   }
 }
 
@@ -304,4 +349,65 @@ function detectSentiment(content) {
 }
 
 // 导出其他可能需要的函数
-exports.analyzeContentWithAI = analyzeContentWithAI; 
+exports.analyzeContentWithAI = analyzeContentWithAI;
+
+// 导出邮件提醒函数
+exports.sendReminderEmail = functions.https.onCall(async (data, context) => {
+  // 验证用户是否已登录
+  if (!context.auth) {
+    throw new functions.https.HttpsError(
+      'unauthenticated',
+      '用户必须登录才能发送提醒邮件'
+    );
+  }
+
+  const { email, username } = data;
+
+  if (!email) {
+    throw new functions.https.HttpsError(
+      'invalid-argument',
+      '必须提供邮箱地址'
+    );
+  }
+
+  try {
+    // 邮件内容
+    const mailOptions = {
+      from: `"日记小助手" <${functions.config().email.user}>`,
+      to: email,
+      subject: '📝 今天的日记还没写哦',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+          <h2 style="color: #E9AFA3; text-align: center;">亲爱的 ${username || '日记达人'}</h2>
+          <p style="font-size: 16px; line-height: 1.6; color: #333;">
+            今天过得怎么样？别忘了记录下今天的心情和故事哦！
+          </p>
+          <p style="font-size: 16px; line-height: 1.6; color: #333;">
+            打开日记应用，写下今天的点点滴滴，让回忆永远保存。
+          </p>
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="https://diary-darling.web.app" 
+               style="background-color: #E9AFA3; color: white; padding: 12px 24px; 
+                      text-decoration: none; border-radius: 25px; font-weight: bold;">
+              立即写日记
+            </a>
+          </div>
+          <p style="font-size: 14px; color: #666; text-align: center; margin-top: 30px;">
+            这是一封自动发送的提醒邮件，请勿回复。
+          </p>
+        </div>
+      `
+    };
+
+    // 发送邮件
+    await transporter.sendMail(mailOptions);
+    
+    return { success: true, message: '提醒邮件已发送' };
+  } catch (error) {
+    console.error('发送邮件失败:', error);
+    throw new functions.https.HttpsError(
+      'internal',
+      '发送邮件失败，请稍后重试'
+    );
+  }
+}); 

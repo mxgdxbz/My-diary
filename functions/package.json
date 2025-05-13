@@ -25,6 +25,7 @@
     "firebase-admin": "^12.6.0",
     "firebase-functions": "^6.0.1",
     "genkit": "^1.1.0",
+    "nodemailer": "^7.0.3",
     "openai": "^4.87.3"
   },
   "devDependencies": {

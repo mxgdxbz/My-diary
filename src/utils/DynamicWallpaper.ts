@@ -22,7 +22,7 @@ export interface Wallpaper {
 }
 
 // 图片分类主题 - 从环境变量中读取，如果未设置则使用默认值
-const defaultThemes = '古镇,海滩,森林,山脉,城市,湖泊,花园,宠物,人文, beach, sky, sunset, sunrise, cloud, flower, tree, mountain, city, lake, garden, pet, human';
+const defaultThemes = 'beach, sky, sunset, sunrise, cloud, flower, tree, mountain, city, lake, garden, pet, human';
 const themesString = import.meta.env.VITE_DEFAULT_WALLPAPER_THEME || defaultThemes;
 export const wallpaperThemes = themesString.split(',').map((theme: string) => theme.trim());
 

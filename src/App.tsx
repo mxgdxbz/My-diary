@@ -3,34 +3,39 @@ import {
   Box, ChakraProvider, VStack, Heading, 
   Input, Textarea, Button, HStack, Image, 
   useToast, FormControl, FormLabel, Flex,
-
   Text, Divider, Card, CardBody, CardHeader,
   SimpleGrid, Badge, Modal, ModalOverlay,
   ModalContent, ModalHeader, ModalBody,
   ModalFooter, ModalCloseButton, useDisclosure,
   Menu, MenuButton, MenuList, MenuItem,
   Tag, TagLabel, TagCloseButton, Wrap, WrapItem,
-  extendTheme, Center, Switch, Grid, GridItem,
+  Center, Switch, Grid, GridItem,
   Icon, useColorMode, IconButton, Spinner, Tooltip,
-  Editable, EditablePreview, EditableInput
+  Editable, EditablePreview, EditableInput,
+  Radio, RadioGroup
 } from '@chakra-ui/react';
 import { format, parseISO, differenceInDays, startOfMonth, endOfMonth, addDays, isSameDay, isSameMonth } from 'date-fns';
 import { ChevronDownIcon, CalendarIcon, SettingsIcon, StarIcon, AddIcon, EditIcon, ExternalLinkIcon, CheckIcon } from '@chakra-ui/icons';
-import { db, auth, storage } from './FirebaseConfig';
-import { collection, addDoc, getDocs, query, where, updateDoc, doc, setDoc, getDoc, orderBy, limit } from 'firebase/firestore';
+import { db, auth, storage } from './config/FirebaseConfig';
+import { collection, addDoc, getDocs, query, where, updateDoc, doc, setDoc, getDoc } from 'firebase/firestore';
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile } from 'firebase/auth';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { FaShare, FaPen, FaEye, FaCalendarAlt } from 'react-icons/fa';
 import { shareCalendar } from './utils/ShareCalendar';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 
 // 引入动态壁纸相关组件
 import WallpaperBackground from './components/WallpaperBackground';
 // 导入心情颜色映射
 import { moodColors } from './utils/LocalWallpapers';
 // 导入自定义布局样式
-import '../DiaryLayout.css';
+import './styles/DiaryLayout.css';
 // 导入登录页面组件
 import LoginPage from './components/LoginPage';
+// 导入主题
+import theme from './config/theme';
+// 导入likeManager
+import { handleLike, loadLikedAnalysis } from './utils/likeManager';
 
 // 添加自定义字体
 const CustomStyles = () => (
@@ -94,7 +99,7 @@ const translations = {
     close: '关闭',
     edit: '编辑',
     like: '点赞',
-    liked: '已赞',
+    liked: '喜爱',
     diaryReminder: '日记提醒',
     enableReminder: '启用每日提醒',
     reminderTime: '提醒时间',
@@ -208,246 +213,6 @@ const translations = {
   }
 };
 
-// 定义玻璃拟态主题
-const theme = extendTheme({
-  colors: {
-    brand: {
-      50: '#FDF0ED',  // 珊瑚粉超浅色
-      100: '#F9DED7', // 珊瑚粉浅色
-      200: '#F1C7BD', // 珊瑚粉中浅色 
-      300: '#EDB9AD', // 珊瑚粉中色
-      400: '#E9AFA3', // 珊瑚粉 - 主色调
-      500: '#E39A8B', // 珊瑚粉加深
-      600: '#CC7D6E', // 珊瑚粉深色
-      700: '#B56151', // 珊瑚粉极深色
-      800: '#96483A', // 褐色过渡
-      900: '#7A3A2F', // 深褐色
-    },
-    neutrals: {
-      50: '#FFFFFF',  // 纯白
-      100: '#F9F9FA',
-      200: '#F0F1F3',
-      300: '#E6E8EC',
-      400: '#D1D6DF',
-      500: '#B7BEC9',
-      600: '#8E99AA',
-      700: '#646F83',
-      800: '#3A405A', // 深海蓝
-      900: '#1F2233', // 深蓝黑
-    },
-  },
-  styles: {
-    global: {
-      body: {
-        bg: 'neutrals.50', 
-        color: 'neutrals.900',
-        backgroundImage: 'url(/bg-pattern.png)', // 可选：添加微妙的背景图案
-        backgroundSize: 'cover',
-        backgroundAttachment: 'fixed',
-      },
-    },
-  },
-  components: {
-    Button: {
-      baseStyle: {
-        fontWeight: 'medium',
-        borderRadius: 'md',
-      },
-      variants: {
-        solid: (props: any) => ({
-          bg: props.colorScheme === "teal" ? "brand.500" : 
-               props.colorScheme === "gray" ? "neutrals.800" : undefined,
-          color: "white",
-          _hover: {
-            bg: props.colorScheme === "teal" ? "brand.600" : 
-                 props.colorScheme === "gray" ? "neutrals.900" : undefined,
-            transform: 'translateY(-2px)',
-            boxShadow: 'md',
-          },
-          transition: 'all 0.2s',
-        }),
-        glass: {
-          bg: 'rgba(255, 255, 255, 0.15)',
-          borderRadius: 'lg',
-          color: 'neutrals.900',
-          border: '1px solid rgba(255, 255, 255, 0.2)',
-          _hover: {
-            bg: 'rgba(255, 255, 255, 0.25)',
-            transform: 'translateY(-2px)',
-            boxShadow: 'md',
-          },
-          transition: 'all 0.2s',
-        },
-      },
-    },
-    Card: {
-      baseStyle: {
-        container: {
-          bg: 'rgba(255, 255, 255, 0.6)',
-          borderRadius: 'xl',
-          boxShadow: '0 8px 32px rgba(31, 38, 135, 0.1)',
-          border: '1px solid rgba(255, 255, 255, 0.18)',
-          transition: 'all 0.3s ease',
-        },
-      },
-      variants: {
-        glass: {
-          container: {
-            bg: 'rgba(255, 255, 255, 0.6)',
-            borderRadius: 'xl',
-            boxShadow: '0 8px 32px rgba(31, 38, 135, 0.1)',
-            border: '1px solid rgba(255, 255, 255, 0.18)',
-            transition: 'all 0.3s ease',
-            _hover: {
-              boxShadow: '0 8px 32px rgba(31, 38, 135, 0.2)',
-            },
-          }
-        }
-      },
-      defaultProps: {
-        variant: 'glass',
-      }
-    },
-    Input: {
-      variants: {
-        glass: {
-          field: {
-            bg: 'rgba(255, 255, 255, 0.3)',
-            borderRadius: 'md',
-            border: '1px solid rgba(255, 255, 255, 0.2)',
-            _hover: {
-              borderColor: 'brand.400',
-            },
-            _focus: {
-              borderColor: 'brand.400',
-              boxShadow: '0 0 0 1px #E9AFA3',
-            },
-          }
-        }
-      },
-      defaultProps: {
-        variant: 'glass',
-      }
-    },
-    Textarea: {
-      variants: {
-        glass: {
-          bg: 'rgba(255, 255, 255, 0.3)',
-          borderRadius: 'md',
-          border: '1px solid rgba(255, 255, 255, 0.2)',
-          _hover: {
-            borderColor: 'brand.400',
-          },
-          _focus: {
-            borderColor: 'brand.400',
-            boxShadow: '0 0 0 1px #E9AFA3',
-          },
-        }
-      },
-      defaultProps: {
-        variant: 'glass',
-      }
-    },
-    Box: {
-      variants: {
-        glass: {
-          bg: 'rgba(255, 255, 255, 0.6)',
-          borderRadius: 'xl',
-          boxShadow: '0 8px 32px rgba(31, 38, 135, 0.1)',
-          border: '1px solid rgba(255, 255, 255, 0.18)',
-        }
-      }
-    },
-    Modal: {
-      baseStyle: {
-        dialog: {
-          bg: 'rgba(255, 255, 255, 0.85)',
-          borderRadius: 'xl',
-          boxShadow: 'xl',
-        }
-      }
-    },
-    Tabs: {
-      variants: {
-        'soft-rounded': {
-          tab: {
-            borderRadius: 'full',
-            fontWeight: 'medium',
-            _selected: {
-              color: 'white',
-              bg: 'brand.500',
-            }
-          }
-        },
-        enclosed: {
-          tab: {
-            _selected: {
-              color: 'brand.700',
-              borderColor: 'brand.500',
-              borderBottomColor: 'white',
-            }
-          }
-        },
-        glass: {
-          tab: {
-            borderRadius: 'md',
-            fontWeight: 'medium',
-            bg: 'rgba(255, 255, 255, 0.3)',
-            _selected: {
-              color: 'white',
-              bg: 'brand.500',
-            }
-          },
-          tablist: {
-            borderColor: 'rgba(255, 255, 255, 0.2)',
-            mb: '1em',
-          }
-        }
-      },
-    },
-    Text: {
-      baseStyle: {
-        fontFamily: `'SF Pro', -apple-system, BlinkMacSystemFont, sans-serif`,
-      },
-      variants: {
-        cursive: {
-          fontFamily: `'Ma Shan Zheng', '尔雅趣宋体', cursive`,
-        },
-        leira: {
-          fontFamily: `'Leira-Regular', 'Leira', cursive`,
-        },
-        forte: {
-          fontFamily: `'Forte', cursive`,
-        }
-      }
-    },
-    Heading: {
-      baseStyle: {
-        fontFamily: `'SF Pro', -apple-system, BlinkMacSystemFont, sans-serif`,
-      },
-      variants: {
-        cursive: {
-          fontFamily: `'Ma Shan Zheng', '尔雅趣宋体', cursive`,
-        },
-        leira: {
-          fontFamily: `'Leira-Regular', 'Leira', cursive`,
-        },
-        forte: {
-          fontFamily: `'Forte', cursive`,
-        }
-      }
-    }
-  },
-  fonts: {
-    heading: `'SF Pro', -apple-system, BlinkMacSystemFont, sans-serif`,
-    body: `'SF Pro', -apple-system, BlinkMacSystemFont, sans-serif`,
-    cursive: `'Ma Shan Zheng', '尔雅趣宋体', cursive`,
-    leira: `'Leira-Regular', 'Leira', cursive`,
-    forte: `'Forte', cursive`,
-    bodoni: `'Bodoni MT', 'Bodoni', serif`,
-  },
-});
-
 // 用户认证状态
 interface User {
   id: string;
@@ -458,6 +223,8 @@ interface User {
     reminderEnabled?: boolean;
     shortGoal?: string;
     shortGoalEmoji?: string;
+    birthday?: string;
+    gender?: string;
   }
 }
 
@@ -685,6 +452,10 @@ function App() {
   // 引用当前壁纸URL
   const wallpaperUrlRef = useRef<string | null>(null);
   
+  // 在 App 组件内添加 functions 初始化
+  const functions = getFunctions();
+  const sendReminderEmail = httpsCallable(functions, 'sendReminderEmail');
+
   // 处理短期目标编辑完成的函数
   const handleGoalEditComplete = () => {
     setTimeout(() => {
@@ -810,9 +581,21 @@ function App() {
           
           // 发送邮件提醒
           if (user?.email) {
-            // 实际应用中，这里会调用后端API发送邮件
-            console.log(`发送提醒邮件到: ${user.email}`);
-            // 可以使用Firebase Functions实现此功能
+            sendReminderEmail({
+              email: user.email,
+              username: user.name
+            }).then((result) => {
+              console.log('提醒邮件发送成功:', result);
+            }).catch((error) => {
+              console.error('提醒邮件发送失败:', error);
+              toast({
+                title: '邮件发送失败',
+                description: '无法发送提醒邮件，请检查网络连接',
+                status: 'error',
+                duration: 5000,
+                isClosable: true,
+              });
+            });
           }
         }
       };
@@ -1092,127 +875,18 @@ function App() {
     setAnalysisId('');
     
     // 检查是否有已点赞的分析，如果有则加载
-    loadLikedAnalysis(diary.id);
+    if (auth.currentUser) {
+      loadLikedAnalysis({
+        diaryId: diary.id,
+        userId: auth.currentUser.uid,
+        setAiAnalysis,
+        setAnalysisId,
+        setIsLiked,
+        toast
+      });
+    }
     
     onDetailOpen();
-  };
-
-  // 添加处理Firestore索引错误的辅助函数
-  const handleFirestoreIndexError = (error: any): boolean => {
-    // 检查是否是缺少索引的错误
-    if (error && error.message && error.message.includes('index')) {
-      console.error('Firestore索引错误:', error.message);
-      
-      // 从错误消息中提取创建索引的URL（如果有）
-      const urlMatch = error.message.match(/https:\/\/console\.firebase\.google\.com[^\s"]*/);
-      const indexUrl = urlMatch ? urlMatch[0] : null;
-      
-      // 显示带有索引创建链接的错误提示
-      toast({
-        title: 'Firestore索引需要创建',
-        description: indexUrl 
-          ? '点击此消息创建索引，然后重试操作。' 
-          : '请联系管理员创建必要的Firestore索引。',
-        status: 'error',
-        duration: 10000,
-        isClosable: true,
-        onCloseComplete: () => {
-          if (indexUrl) {
-            window.open(indexUrl, '_blank');
-          }
-        }
-      });
-      return true;
-    }
-    return false;
-  };
-
-  // 添加加载已点赞分析的函数
-  const loadLikedAnalysis = async (diaryId: string) => {
-    try {
-      if (!user || !auth.currentUser) return;
-      
-      // 首先尝试从用户特定的集合中查询
-      let querySnapshot;
-      
-      try {
-        // 查询用户特定路径
-        const userLikesRef = collection(db, `users/${auth.currentUser.uid}/likes`);
-        const userQuery = query(
-          userLikesRef,
-          where('diaryId', '==', diaryId),
-          orderBy('timestamp', 'desc'),
-          limit(1)
-        );
-        
-        querySnapshot = await getDocs(userQuery);
-        console.log('从用户特定路径查询点赞记录');
-      } catch (pathError) {
-        console.log('从用户路径查询失败，尝试公共集合:', pathError);
-        
-        // 检查是否是索引错误
-        if (handleFirestoreIndexError(pathError)) {
-          return; // 如果是索引错误，直接返回
-        }
-        
-        // 如果用户特定路径失败，尝试公共集合
-        const likesRef = collection(db, 'likes');
-        const publicQuery = query(
-          likesRef,
-          where('userId', '==', auth.currentUser.uid),
-          where('diaryId', '==', diaryId),
-          orderBy('timestamp', 'desc'),
-          limit(1)
-        );
-        
-        try {
-          querySnapshot = await getDocs(publicQuery);
-          console.log('从公共路径查询点赞记录');
-        } catch (publicError) {
-          // 检查是否是索引错误
-          if (handleFirestoreIndexError(publicError)) {
-            return; // 如果是索引错误，直接返回
-          }
-          throw publicError; // 否则，继续抛出错误
-        }
-      }
-      
-      if (!querySnapshot.empty) {
-        // 找到了点赞记录
-        const likeDoc = querySnapshot.docs[0].data();
-        const analysisId = likeDoc.analysisId;
-        
-        // 查询点赞记录对应的分析内容
-        if (likeDoc.analysis) {
-          // 如果点赞记录中直接包含分析内容
-          setAiAnalysis(likeDoc.analysis);
-          setAnalysisId(analysisId);
-          setIsLiked(true);
-          console.log('从点赞记录中加载分析成功');
-          
-          // 显示提示
-          toast({
-            title: '已加载您之前收藏的分析',
-            status: 'info',
-            duration: 2000,
-            isClosable: true,
-          });
-        } else {
-          console.log('找到点赞记录，但需要实现从其他集合加载分析内容的逻辑');
-          // 这里可能需要从另一个集合中查询分析内容
-          // 目前先显示一个提示让用户知道曾经点过赞
-          toast({
-            title: '您曾经对这篇日记的分析点过赞',
-            status: 'info',
-            duration: 3000,
-            isClosable: true,
-          });
-        }
-      }
-    } catch (error) {
-      console.error('加载点赞分析失败:', error);
-      // 不需要向用户显示此错误，因为这是静默加载
-    }
   };
 
   // 更新生成AI分析函数，增加错误处理和日志记录
@@ -1323,79 +997,19 @@ function App() {
     }
   };
 
-  // 核心保存函数
-  const saveLikeToDatabase = async (analysisId: string) => {
-    if (!user || !auth.currentUser || !selectedDiary) {
-      throw new Error('Missing required data');
-    }
-
-    const likeData = {
-      analysisId,
-      userId: auth.currentUser.uid,
-      diaryId: selectedDiary.id,
-      analysis: aiAnalysis,
-      timestamp: new Date().toISOString()
-    };
-
-    const userLikesRef = collection(db, `users/${auth.currentUser.uid}/likes`);
-    await addDoc(userLikesRef, likeData);
-  };
-
   // 用户交互处理函数
-  const handleLike = async () => {
-    if (isLiked) {
-      toast({
-        title: '点赞已保存',
-        description: '感谢您的反馈',
-        status: 'info',
-        duration: 2000,
-        isClosable: true,
-      });
-      return;
-    }
-
-    if (!selectedDiary || !aiAnalysis) {
-      toast({
-        title: '请先启用聊一下',
-        description: '生成AI分析后才能点赞',
-        status: 'warning',
-        duration: 3000,
-        isClosable: true,
-      });
-      return;
-    }
-
-    try {
-      const finalAnalysisId = analysisId || `analysis_${selectedDiary.id}_${Date.now()}`;
-      await saveLikeToDatabase(finalAnalysisId);
+  const handleLikeClick = async () => {
+    const success = await handleLike({
+      isLiked,
+      selectedDiary,
+      aiAnalysis,
+      analysisId,
+      userId: auth.currentUser!.uid,
+      toast
+    });
+    
+    if (success) {
       setIsLiked(true);
-      
-      toast({
-        title: '已保存分析结果',
-        status: 'success',
-        duration: 3000,
-        isClosable: true,
-      });
-    } catch (error) {
-      console.error('点赞处理失败:', error);
-      
-      if (error instanceof Error && error.message.includes('permission-denied')) {
-        toast({
-          title: '权限错误',
-          description: '请检查 index-ai.js 中的 Firestore 规则设置',
-          status: 'error',
-          duration: 4000,
-          isClosable: true,
-        });
-      } else {
-        toast({
-          title: '保存失败',
-          description: error instanceof Error ? error.message : '未知错误',
-          status: 'error',
-          duration: 4000,
-          isClosable: true,
-        });
-      }
     }
   };
 
@@ -1419,7 +1033,9 @@ function App() {
             reminderTime,
             reminderEnabled,
             shortGoal,
-            shortGoalEmoji
+            shortGoalEmoji,
+            birthday: user.preferences?.birthday,
+            gender: user.preferences?.gender
           }
         };
         
@@ -1433,7 +1049,9 @@ function App() {
             reminderTime,
             reminderEnabled,
             shortGoal,
-            shortGoalEmoji
+            shortGoalEmoji,
+            birthday: user.preferences?.birthday,
+            gender: user.preferences?.gender
           }
         }, { merge: true });
         
@@ -2843,28 +2461,44 @@ function App() {
                 </VStack>
               </ModalBody>
               <ModalFooter>
-                <Button 
-                  colorScheme="brand" 
-                  mr={3} 
-                  leftIcon={<EditIcon />}
-                  onClick={() => editDiary(selectedDiary)}
-                >
-                  {t('edit')}
-                </Button>
-                <Button 
-                  variant="glass" 
-                  mr={3}
-                  onClick={handleLike}
-                  aria-label={t('like')}
-                  color={isLiked ? "red.500" : "neutrals.800"}
-                  _hover={{ color: isLiked ? "red.600" : "brand.500" }}
-                >
-                  <span style={{ fontSize: "1.0rem", marginRight: "4px" }}>❤️</span>
-                  {isLiked ? t('liked') : t('like')}
-                </Button>
-                <Button variant="glass" onClick={onDetailClose}>
-                  {t('close')}
-                </Button>
+                <Tooltip label={t('edit')} placement="top">
+                  <IconButton
+                    aria-label={t('edit')}
+                    icon={<EditIcon />}
+                    colorScheme="brand"
+                    mr={3}
+                    onClick={() => editDiary(selectedDiary)}
+                    variant="ghost"
+                    _hover={{ transform: "translateY(-2px)", boxShadow: "md" }}
+                    transition="all 0.2s"
+                  />
+                </Tooltip>
+                <Tooltip label={isLiked ? t('liked') : t('like')} placement="top">
+                  <IconButton
+                    aria-label={t('like')}
+                    icon={<span style={{ fontSize: "1.2rem" }}>❤️</span>}
+                    variant="ghost"
+                    mr={3}
+                    onClick={handleLikeClick}
+                    color={isLiked ? "red.500" : "neutrals.800"}
+                    _hover={{ 
+                      color: isLiked ? "red.600" : "brand.500",
+                      transform: "translateY(-2px)",
+                      boxShadow: "md"
+                    }}
+                    transition="all 0.2s"
+                  />
+                </Tooltip>
+                <Tooltip label={t('close')} placement="top">
+                  <IconButton
+                    aria-label={t('close')}
+                    icon={<Icon as={ExternalLinkIcon} transform="rotate(45deg)" />}
+                    variant="ghost"
+                    onClick={onDetailClose}
+                    _hover={{ transform: "translateY(-2px)", boxShadow: "md" }}
+                    transition="all 0.2s"
+                  />
+                </Tooltip>
               </ModalFooter>
             </>
           )}
@@ -2929,14 +2563,94 @@ function App() {
                   bg="rgba(255, 255, 255, 0.2)"
                 />
               </FormControl>
-              
+
               <FormControl>
-                <FormLabel>{t('userId')}</FormLabel>
+                <FormLabel>生日</FormLabel>
                 <Input 
-                  value={user?.id || ''} 
-                  isReadOnly
-                  bg="rgba(255, 255, 255, 0.2)"
+                  type="date"
+                  value={user?.preferences?.birthday || ''}
+                  onChange={(e) => setUser(prev => prev ? {
+                    ...prev,
+                    preferences: {
+                      ...prev.preferences,
+                      birthday: e.target.value
+                    }
+                  } : null)}
+                  bg="rgba(255, 255, 255, 0.3)"
                 />
+              </FormControl>
+
+              <FormControl>
+                <FormLabel>性别</FormLabel>
+                <RadioGroup 
+                  value={user?.preferences?.gender || ''}
+                  onChange={(value) => setUser(prev => prev ? {
+                    ...prev,
+                    preferences: {
+                      ...prev.preferences,
+                      gender: value
+                    }
+                  } : null)}
+                >
+                  <HStack spacing={4}>
+                    <Radio 
+                      value="Girl"
+                      sx={{
+                        '& .chakra-radio__control': {
+                          width: '40px',
+                          height: '40px',
+                          borderRadius: 'full',
+                          border: '2px solid',
+                          borderColor: 'gray.200',
+                          _checked: {
+                            borderColor: 'brand.500',
+                            bg: 'transparent',
+                            _before: {
+                              content: '""',
+                              width: '100%',
+                              height: '100%',
+                              borderRadius: 'full',
+                              bg: 'transparent'
+                            }
+                          }
+                        },
+                        '& .chakra-radio__label': {
+                          display: 'none'
+                        }
+                      }}
+                    >
+                      👧🏻
+                    </Radio>
+                    <Radio 
+                      value="Boy"
+                      sx={{
+                        '& .chakra-radio__control': {
+                          width: '40px',
+                          height: '40px',
+                          borderRadius: 'full',
+                          border: '2px solid',
+                          borderColor: 'gray.200',
+                          _checked: {
+                            borderColor: 'brand.500',
+                            bg: 'transparent',
+                            _before: {
+                              content: '""',
+                              width: '100%',
+                              height: '100%',
+                              borderRadius: 'full',
+                              bg: 'transparent'
+                            }
+                          }
+                        },
+                        '& .chakra-radio__label': {
+                          display: 'none'
+                        }
+                      }}
+                    >
+                      👦🏻
+                    </Radio>
+                  </HStack>
+                </RadioGroup>
               </FormControl>
             </VStack>
           </ModalBody>
